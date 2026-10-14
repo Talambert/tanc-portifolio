@@ -1,0 +1,25 @@
+# Manifesto explícito de fontes da ANP (Levantamento de Preços de Combustíveis).
+# Lista de URLs em vez de padrão de nome: os arquivos mensais têm nomes irregulares
+# (ex.: julho/2026 não leva "2026-07" no nome; fevereiro e abril também fogem do padrão).
+# Página oficial: https://www.gov.br/anp/pt-br/centrais-de-conteudo/dados-abertos/serie-historica-de-precos-de-combustiveis
+# Formato dos CSVs: UTF-8 com BOM, separador ";", decimal com vírgula, data dd/mm/aaaa.
+
+base_url: https://www.gov.br/anp/pt-br/centrais-de-conteudo/dados-abertos/arquivos/shpc
+
+sources:
+  # Combustíveis automotivos, por semestre (ZIP com um CSV)
+  - { id: ca-2023-01, path: dsas/ca/ca-2023-01.zip, kind: semestral, year: 2023, period: "01" }
+  - { id: ca-2023-02, path: dsas/ca/ca-2023-02.zip, kind: semestral, year: 2023, period: "02" }
+  - { id: ca-2024-01, path: dsas/ca/ca-2024-01.zip, kind: semestral, year: 2024, period: "01" }
+  - { id: ca-2024-02, path: dsas/ca/ca-2024-02.zip, kind: semestral, year: 2024, period: "02" }
+  - { id: ca-2025-01, path: dsas/ca/ca-2025-01.zip, kind: semestral, year: 2025, period: "01" }
+  - { id: ca-2025-02, path: dsas/ca/ca-2025-02.zip, kind: semestral, year: 2025, period: "02" }
+  - { id: ca-2026-01, path: dsas/ca/ca-2026-01.zip, kind: semestral, year: 2026, period: "01" }
+
+  # Semestre corrente (2026-02): arquivos mensais, ainda sem o ZIP semestral
+  - { id: gasolina-etanol-2026-07, path: dsan/2026/07-dados-abertos-precos-gasolina-etanol.csv, kind: mensal, year: 2026, period: "07" }
+  - { id: gasolina-etanol-2026-08, path: dsan/2026/08-dados-abertos-precos-2026-08-gasolina-etanol.csv, kind: mensal, year: 2026, period: "08" }
+  - { id: gasolina-etanol-2026-09, path: dsan/2026/09-dados-abertos-precos-2026-09-gasolina-etanol.csv, kind: mensal, year: 2026, period: "09" }
+  - { id: diesel-gnv-2026-07, path: dsan/2026/07-dados-abertos-precos-diesel-gnv.csv, kind: mensal, year: 2026, period: "07" }
+  - { id: diesel-gnv-2026-08, path: dsan/2026/08-dados-abertos-precos-2026-08-diesel-gnv.csv, kind: mensal, year: 2026, period: "08" }
+  - { id: diesel-gnv-2026-09, path: dsan/2026/09-dados-abertos-precos-2026-09-diesel-gnv.csv, kind: mensal, year: 2026, period: "09" }
