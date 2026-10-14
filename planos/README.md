@@ -1,0 +1,101 @@
+# 🗺️ Planos de Desenvolvimento
+
+Roadmap dos próximos projetos do portfólio. Os quatro projetos contam **uma única história**, com o mesmo dataset em etapas: *do arquivo cru no bucket ao painel no Power BI*.
+
+| # | Projeto (pasta) | Plano | Fases |
+|:-:|---|---|:-:|
+| 1 | `combustiveis-pipeline-gcp` | [01-combustiveis-pipeline-gcp.md](01-combustiveis-pipeline-gcp.md) | 0, 1, 2, 3, 4 |
+| 2 | `combustiveis-dbt` | [02-combustiveis-dbt.md](02-combustiveis-dbt.md) | 5 |
+| 3 | `combustiveis-orquestracao` | [03-combustiveis-orquestracao.md](03-combustiveis-orquestracao.md) | 6 |
+| 4 | `combustiveis-bi-powerbi` | [04-combustiveis-bi-powerbi.md](04-combustiveis-bi-powerbi.md) | 7 |
+
+Fase 8 (acabamento do repositório) está no fim deste arquivo.
+
+## Fluxo de ponta a ponta
+
+```text
+ ANP (gov.br)                       CSV / ZIP públicos
+      │
+      ▼
+ ┌─────────┐  Python (Cloud Run Jobs)   ┌─────────┐       dbt        ┌─────────┐
+ │ BRONZE  │ ─────────────────────────▶ │ SILVER  │ ───────────────▶ │  GOLD   │ ──▶ Power BI
+ │ Storage │  PySpark (Dataproc Server.)│ BigQuery│  staging→marts   │ BigQuery│
+ └─────────┘                            └─────────┘                  └─────────┘
+      ▲                                       ▲                           ▲
+      └───────────── Airflow local / Cloud Composer (orquestra tudo) ─────┘
+```
+
+## Decisões de arquitetura
+
+| Decisão | Escolha | Por quê |
+|---|---|---|
+| Dataset | Preços de combustíveis da ANP | Público, real, na área de atuação, e com problemas reais de qualidade |
+| Escopo inicial | 2023 em diante | Caber no free tier; ampliar depois para o histórico completo (desde 2004) |
+| Motores de silver | Python (Cloud Run Jobs) **e** PySpark (Dataproc Serverless) | Mostrar que a ferramenta é escolhida pela necessidade; comparar custo e tempo |
+| Camada gold | dbt Core sobre BigQuery | SQL versionado, testado e documentado |
+| Orquestração | Airflow local (Docker) **e** Cloud Composer | O mesmo DAG nos dois ambientes |
+| BI | Power BI conectado ao BigQuery | Domínio do autor |
+| Infra | Terraform | Reprodutível e destruível, essencial para controlar custo |
+| Região | `southamerica-east1` | Menor latência; confirmar disponibilidade dos serviços |
+
+> ⚖️ **Honestidade técnica:** um semestre da ANP tem ~422 mil linhas (72 MB). Spark é desproporcional para esse volume, e o comparativo do projeto 1 deve **mostrar isso com números**, em vez de esconder. É um ponto a favor do portfólio: saber quando *não* usar uma ferramenta.
+
+## Fonte de dados (verificada em 13/10/2026)
+
+Base: `https://www.gov.br/anp/pt-br/centrais-de-conteudo/dados-abertos/arquivos/shpc/`
+
+| Arquivo | Caminho | Formato |
+|---|---|---|
+| Combustíveis automotivos, por semestre | `dsas/ca/ca-AAAA-0S.zip` (ex.: `ca-2026-01.zip`, ~8 MB zipado) | ZIP com um CSV |
+| Gasolina/etanol e diesel/GNV, por mês | `dsan/AAAA/MM-dados-abertos-precos-AAAA-MM-<produto>.csv` (2026); `precos-<produto>-MM.csv` (2025 e antes) | CSV |
+| Últimas 4 semanas | `qus/ultimas-4-semanas-<produto>.csv` | CSV |
+
+**Formato observado:** UTF-8 com BOM, fim de linha CRLF, separador `;`, decimal com vírgula, data `dd/mm/aaaa`. 16 colunas:
+`Regiao - Sigla; Estado - Sigla; Municipio; Revenda; CNPJ da Revenda; Nome da Rua; Numero Rua; Complemento; Bairro; Cep; Produto; Data da Coleta; Valor de Venda; Valor de Compra; Unidade de Medida; Bandeira`
+
+**Problemas de qualidade encontrados** (viram requisitos e testes):
+- CNPJ com **espaço no início** (` 88.587.589/0001-17`).
+- Linhas com **`;` dentro do endereço, sem aspas**, que deslocam colunas (valores como `PRAIA DE ITAPARICA` ou um CEP aparecendo na coluna `Produto`).
+- `Valor de Compra` quase sempre vazio.
+- Unidades variam (`R$ / litro`, `R$ / m³` no GNV).
+- **Nomes de arquivo irregulares** nos arquivos mensais (ex.: fevereiro/2026 com nome truncado, abril/2026 sem extensão). A ingestão deve usar um **manifesto explícito de URLs**, e não adivinhar o padrão.
+
+> Os metadados oficiais estão em `metadados-serie-historica-precos-combustiveis-1.pdf` na mesma base. Confirmar o dicionário de dados lá antes de modelar.
+
+## Custos e salvaguardas
+
+- 🔔 **Alerta de orçamento** no GCP antes de criar qualquer recurso pago (ex.: R$ 25 e R$ 50).
+- **Cloud Composer é caro** se ficar ligado (ordem de centenas de dólares por mês). Criar, rodar a demonstração, capturar evidências e **destruir no mesmo dia**, com Terraform.
+- **Dataproc:** apenas **Serverless (batch)**. Nunca cluster fixo.
+- **BigQuery:** tabelas particionadas por data e `maximum_bytes_billed` nas consultas.
+- **Segredos:** nenhuma chave no git. Cada serviço usa uma Service Account própria, com menor privilégio. O repositório é público.
+- Os dados da ANP são públicos, então não há dado de empresa em nenhum projeto.
+
+## Ordem de execução
+
+1. Fase 0 → 1 → 2 (base, bronze, silver em Python)
+2. Fase 3 → 4 (PySpark e comparativo)
+3. Fase 5 (dbt: staging e marts)
+4. Fase 6 (orquestração local, depois Composer)
+5. Fase 7 (Power BI)
+6. Fase 8 (acabamento)
+
+Cada fase termina com algo que **funciona e pode ser mostrado**. Não se avança com a fase anterior quebrada.
+
+## Fase 8 — Acabamento do repositório
+
+- [ ] README de cada projeto com: diagrama, pergunta de negócio, decisões, resultado e como rodar.
+- [ ] README da raiz atualizado (tabela de projetos, destaques).
+- [ ] CI no GitHub Actions: lint, testes unitários e `dbt build` (com `dbt parse` se não houver credencial no CI).
+- [ ] Documentação do dbt publicada no GitHub Pages.
+- [ ] Revisão de segurança: nenhum segredo, `.gitignore` conferido, histórico limpo.
+- [ ] Teste de "clone limpo": outra pessoa roda seguindo só o README.
+
+## Pré-requisitos (a cargo do autor)
+
+- [ ] Conta GCP com billing ativo e projeto criado (ID e região).
+- [ ] Google Cloud SDK (`gcloud`) instalado e autenticado.
+- [ ] Terraform instalado.
+- [ ] Docker Desktop (para o Airflow local).
+- [ ] Power BI Desktop (para a Fase 7).
+- [ ] Python 3.11+ (todos os comandos neste roadmap usam Git Bash).
