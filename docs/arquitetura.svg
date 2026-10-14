@@ -1,0 +1,168 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1150" viewBox="0 0 1800 1150" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif">
+<title>Arquitetura do portfólio de dados</title>
+<desc>Do arquivo cru da ANP ao painel e ao portal de governança com IA: ingestão para o Cloud Storage, processamento para a silver, transformação com dbt para a gold, consumo no Power BI e em um agente de dados, e um portal de governança que gera metadados, regras de data quality e serve um catálogo. Cada caixa indica a pasta do projeto no repositório.</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1F2A37"/></marker><marker id="arrowDash" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5B6775"/></marker></defs>
+<rect width="1800" height="1150" fill="#FFFFFF"/>
+<text x="40" y="52" font-size="30" font-weight="700" fill="#1F2A37" text-anchor="start" font-style="normal">Arquitetura do portfólio: do dado bruto à governança com IA</text>
+<text x="40" y="80" font-size="15.5" font-weight="400" fill="#5B6775" text-anchor="start" font-style="normal">Série de projetos de combustíveis (dados abertos da ANP) e portal de governança. As cores indicam o status de cada parte.</text>
+<rect x="40" y="100" width="430" height="96" rx="12" fill="#F1F2F4" stroke="#7A828C" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="255.0" y="121.5" font-size="17" font-weight="700" fill="#1F2A37" text-anchor="middle" font-style="normal">Extração de documentos com IA</text>
+<text x="255.0" y="147.5" font-size="14.5" font-weight="400" fill="#5B6775" text-anchor="middle" font-style="normal">PDF e planilhas sem padrão → Gemini →</text>
+<text x="255.0" y="168.5" font-size="14.5" font-weight="400" fill="#5B6775" text-anchor="middle" font-style="normal">validação em camadas → quarentena</text>
+<text x="255.0" y="190.5" font-size="11.5" font-weight="600" fill="#4B5563" text-anchor="middle" font-style="normal" font-family="'Cascadia Mono', Consolas, 'Courier New', monospace">extracao-documentos-ia</text>
+<circle cx="42" cy="102" r="15" fill="#1F2A37"/>
+<text x="42" y="108" font-size="16" font-weight="700" fill="#fff" text-anchor="middle" font-style="normal">1</text>
+<rect x="1335" y="100" width="200" height="96" rx="12" fill="#F1F2F4" stroke="#7A828C" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="1435.0" y="121.5" font-size="17" font-weight="700" fill="#1F2A37" text-anchor="middle" font-style="normal">Power BI</text>
+<text x="1435.0" y="147.5" font-size="14.5" font-weight="400" fill="#5B6775" text-anchor="middle" font-style="normal">painel de preços</text>
+<text x="1435.0" y="168.5" font-size="14.5" font-weight="400" fill="#5B6775" text-anchor="middle" font-style="normal">e de bandeiras</text>
+<text x="1435.0" y="190.5" font-size="11.5" font-weight="600" fill="#4B5563" text-anchor="middle" font-style="normal" font-family="'Cascadia Mono', Consolas, 'Courier New', monospace">combustiveis-bi-powerbi</text>
+<circle cx="1337" cy="102" r="15" fill="#1F2A37"/>
+<text x="1337" y="108" font-size="16" font-weight="700" fill="#fff" text-anchor="middle" font-style="normal">4</text>
+<rect x="1550" y="100" width="210" height="96" rx="12" fill="#F1F2F4" stroke="#7A828C" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="1655.0" y="122.5" font-size="14" font-weight="700" fill="#1F2A37" text-anchor="middle" font-style="normal">Agente de dados (Gemini)</text>
+<text x="1655.0" y="148.5" font-size="14.5" font-weight="400" fill="#5B6775" text-anchor="middle" font-style="normal">perguntas em português</text>
+<text x="1655.0" y="170.5" font-size="11.5" font-weight="600" fill="#4B5563" text-anchor="middle" font-style="normal" font-family="'Cascadia Mono', Consolas, 'Courier New', monospace">combustiveis-agente-dados</text>
+<text x="1655.0" y="189.5" font-size="11.5" font-weight="600" fill="#4B5563" text-anchor="middle" font-style="normal" font-family="'Cascadia Mono', Consolas, 'Courier New', monospace">combustiveis-mcp-bigquery</text>
+<circle cx="1552" cy="102" r="15" fill="#1F2A37"/>
+<text x="1552" y="108" font-size="16" font-weight="700" fill="#fff" text-anchor="middle" font-style="normal">4</text>
+<rect x="40" y="245" width="190" height="72" rx="12" fill="#FFFFFF" stroke="#9AA3AE" stroke-width="2"/>
+<text x="135.0" y="274.5" font-size="17" font-weight="700" fill="#1F2A37" text-anchor="middle" font-style="normal">ANP (gov.br)</text>
+<text x="135.0" y="300.5" font-size="14.5" font-weight="400" fill="#5B6775" text-anchor="middle" font-style="normal">CSV e ZIP públicos</text>
+<circle cx="42" cy="247" r="15" fill="#1F2A37"/>
+<text x="42" y="253" font-size="16" font-weight="700" fill="#fff" text-anchor="middle" font-style="normal">1</text>
+<rect x="40" y="333" width="190" height="82" rx="12" fill="#E3F4E7" stroke="#0A5C20" stroke-width="2"/>
+<text x="135.0" y="358.0" font-size="17" font-weight="700" fill="#1F2A37" text-anchor="middle" font-style="normal">Parceiros</text>
+<text x="135.0" y="384.0" font-size="14.5" font-weight="400" fill="#5B6775" text-anchor="middle" font-style="normal">upload pelo app</text>
+<text x="135.0" y="406.0" font-size="11.5" font-weight="600" fill="#0A5C20" text-anchor="middle" font-style="normal" font-family="'Cascadia Mono', Consolas, 'Courier New', monospace">gcp-file-uploader</text>
+<circle cx="42" cy="335" r="15" fill="#1F2A37"/>
+<text x="42" y="341" font-size="16" font-weight="700" fill="#fff" text-anchor="middle" font-style="normal">1</text>
+<rect x="275" y="245" width="190" height="82" rx="12" fill="#FFF1D6" stroke="#D98200" stroke-width="2"/>
+<text x="370.0" y="270.0" font-size="15.5" font-weight="700" fill="#1F2A37" text-anchor="middle" font-style="normal">Download com retry</text>
+<text x="370.0" y="296.0" font-size="14.5" font-weight="400" fill="#5B6775" text-anchor="middle" font-style="normal">manifesto de URLs</text>
+<text x="370.0" y="318.0" font-size="11.5" font-weight="600" fill="#8A5200" text-anchor="middle" font-style="normal" font-family="'Cascadia Mono', Consolas, 'Courier New', monospace">combustiveis-pipeline-gcp</text>
+<circle cx="277" cy="247" r="15" fill="#1F2A37"/>
+<text x="277" y="253" font-size="16" font-weight="700" fill="#fff" text-anchor="middle" font-style="normal">1</text>
+<rect x="520" y="245" width="200" height="170" rx="12" fill="#F1F2F4" stroke="#7A828C" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="620.0" y="290.5" font-size="12.5" font-weight="700" fill="#7A828C" text-anchor="middle" font-style="normal">BRONZE</text>
+<text x="620.0" y="314.5" font-size="17" font-weight="700" fill="#1F2A37" text-anchor="middle" font-style="normal">Cloud Storage</text>
+<text x="620.0" y="340.5" font-size="14.5" font-weight="400" fill="#5B6775" text-anchor="middle" font-style="normal">arquivos crus</text>
+<text x="620.0" y="361.5" font-size="14.5" font-weight="400" fill="#5B6775" text-anchor="middle" font-style="normal">por semestre</text>
+<text x="620.0" y="383.5" font-size="11.5" font-weight="600" fill="#4B5563" text-anchor="middle" font-style="normal" font-family="'Cascadia Mono', Consolas, 'Courier New', monospace">combustiveis-pipeline-gcp</text>
+<circle cx="522" cy="247" r="15" fill="#1F2A37"/>
+<text x="522" y="253" font-size="16" font-weight="700" fill="#fff" text-anchor="middle" font-style="normal">1</text>
+<rect x="775" y="245" width="240" height="82" rx="12" fill="#F1F2F4" stroke="#7A828C" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="895.0" y="270.0" font-size="17" font-weight="700" fill="#1F2A37" text-anchor="middle" font-style="normal">Python</text>
+<text x="895.0" y="296.0" font-size="14.5" font-weight="400" fill="#5B6775" text-anchor="middle" font-style="normal">Cloud Run Jobs</text>
+<text x="895.0" y="318.0" font-size="11.5" font-weight="600" fill="#4B5563" text-anchor="middle" font-style="normal" font-family="'Cascadia Mono', Consolas, 'Courier New', monospace">combustiveis-pipeline-gcp</text>
+<circle cx="777" cy="247" r="15" fill="#1F2A37"/>
+<text x="777" y="253" font-size="16" font-weight="700" fill="#fff" text-anchor="middle" font-style="normal">2</text>
+<rect x="775" y="333" width="240" height="82" rx="12" fill="#F1F2F4" stroke="#7A828C" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="895.0" y="358.0" font-size="17" font-weight="700" fill="#1F2A37" text-anchor="middle" font-style="normal">PySpark</text>
+<text x="895.0" y="384.0" font-size="14.5" font-weight="400" fill="#5B6775" text-anchor="middle" font-style="normal">Dataproc Serverless</text>
+<text x="895.0" y="406.0" font-size="11.5" font-weight="600" fill="#4B5563" text-anchor="middle" font-style="normal" font-family="'Cascadia Mono', Consolas, 'Courier New', monospace">combustiveis-pipeline-gcp</text>
+<circle cx="777" cy="335" r="15" fill="#1F2A37"/>
+<text x="777" y="341" font-size="16" font-weight="700" fill="#fff" text-anchor="middle" font-style="normal">2</text>
+<rect x="1070" y="245" width="220" height="170" rx="12" fill="#F1F2F4" stroke="#7A828C" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="1180.0" y="280.0" font-size="12.5" font-weight="700" fill="#7A828C" text-anchor="middle" font-style="normal">SILVER</text>
+<text x="1180.0" y="304.0" font-size="17" font-weight="700" fill="#1F2A37" text-anchor="middle" font-style="normal">BigQuery</text>
+<text x="1180.0" y="330.0" font-size="14.5" font-weight="400" fill="#5B6775" text-anchor="middle" font-style="normal">limpa e tipada</text>
+<text x="1180.0" y="351.0" font-size="14.5" font-weight="400" fill="#5B6775" text-anchor="middle" font-style="normal">quarentena das</text>
+<text x="1180.0" y="372.0" font-size="14.5" font-weight="400" fill="#5B6775" text-anchor="middle" font-style="normal">linhas malformadas</text>
+<text x="1180.0" y="394.0" font-size="11.5" font-weight="600" fill="#4B5563" text-anchor="middle" font-style="normal" font-family="'Cascadia Mono', Consolas, 'Courier New', monospace">combustiveis-pipeline-gcp</text>
+<circle cx="1072" cy="247" r="15" fill="#1F2A37"/>
+<text x="1072" y="253" font-size="16" font-weight="700" fill="#fff" text-anchor="middle" font-style="normal">2</text>
+<rect x="1335" y="280" width="170" height="100" rx="12" fill="#F1F2F4" stroke="#7A828C" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="1420.0" y="303.5" font-size="17" font-weight="700" fill="#1F2A37" text-anchor="middle" font-style="normal">dbt</text>
+<text x="1420.0" y="329.5" font-size="14.5" font-weight="400" fill="#5B6775" text-anchor="middle" font-style="normal">staging → marts</text>
+<text x="1420.0" y="350.5" font-size="14.5" font-weight="400" fill="#5B6775" text-anchor="middle" font-style="normal">testes e docs</text>
+<text x="1420.0" y="372.5" font-size="11.5" font-weight="600" fill="#4B5563" text-anchor="middle" font-style="normal" font-family="'Cascadia Mono', Consolas, 'Courier New', monospace">combustiveis-dbt</text>
+<circle cx="1337" cy="282" r="15" fill="#1F2A37"/>
+<text x="1337" y="288" font-size="16" font-weight="700" fill="#fff" text-anchor="middle" font-style="normal">3</text>
+<rect x="1550" y="245" width="210" height="170" rx="12" fill="#F1F2F4" stroke="#7A828C" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="1655.0" y="290.5" font-size="12.5" font-weight="700" fill="#7A828C" text-anchor="middle" font-style="normal">GOLD</text>
+<text x="1655.0" y="314.5" font-size="17" font-weight="700" fill="#1F2A37" text-anchor="middle" font-style="normal">BigQuery</text>
+<text x="1655.0" y="340.5" font-size="14.5" font-weight="400" fill="#5B6775" text-anchor="middle" font-style="normal">fato + dimensões</text>
+<text x="1655.0" y="361.5" font-size="14.5" font-weight="400" fill="#5B6775" text-anchor="middle" font-style="normal">(esquema estrela)</text>
+<text x="1655.0" y="383.5" font-size="11.5" font-weight="600" fill="#4B5563" text-anchor="middle" font-style="normal" font-family="'Cascadia Mono', Consolas, 'Courier New', monospace">combustiveis-dbt</text>
+<circle cx="1552" cy="247" r="15" fill="#1F2A37"/>
+<text x="1552" y="253" font-size="16" font-weight="700" fill="#fff" text-anchor="middle" font-style="normal">3</text>
+<text x="895" y="437" font-size="13" font-weight="400" fill="#5B6775" text-anchor="middle" font-style="italic">mesmo contrato de dados, resultado comparado</text>
+<polyline points="230,284 275,284" fill="none" stroke="#1F2A37" stroke-width="2.5" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<polyline points="465,284 520,284" fill="none" stroke="#1F2A37" stroke-width="2.5" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<polyline points="230,376 520,376" fill="none" stroke="#1F2A37" stroke-width="2.5" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<polyline points="720,284 775,284" fill="none" stroke="#1F2A37" stroke-width="2.5" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<polyline points="720,376 775,376" fill="none" stroke="#1F2A37" stroke-width="2.5" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<polyline points="1015,284 1070,284" fill="none" stroke="#1F2A37" stroke-width="2.5" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<polyline points="1015,376 1070,376" fill="none" stroke="#1F2A37" stroke-width="2.5" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<polyline points="1290,330 1335,330" fill="none" stroke="#1F2A37" stroke-width="2.5" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<polyline points="1505,330 1550,330" fill="none" stroke="#1F2A37" stroke-width="2.5" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<polyline points="470,150 1180,150 1180,245" fill="none" stroke="#1F2A37" stroke-width="2.5" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<text x="820" y="140" font-size="13" font-weight="400" fill="#5B6775" text-anchor="middle" font-style="italic">carga validada (ou quarentena)</text>
+<polyline points="1580,245 1580,218 1435,218 1435,196" fill="none" stroke="#5B6775" stroke-width="2" stroke-dasharray="7 6" stroke-linejoin="round" marker-end="url(#arrowDash)"/>
+<polyline points="1700,245 1700,196" fill="none" stroke="#5B6775" stroke-width="2" stroke-dasharray="7 6" stroke-linejoin="round" marker-end="url(#arrowDash)"/>
+<rect x="40" y="470" width="1720" height="120" rx="14" fill="#EEF3FB" stroke="#7C93BD" stroke-width="2"/>
+<text x="60" y="496" font-size="14" font-weight="700" fill="#3D5A8A" text-anchor="start" font-style="normal">ORQUESTRAÇÃO E OBSERVABILIDADE</text>
+<rect x="60" y="508" width="210" height="64" rx="12" fill="#F1F2F4" stroke="#7A828C" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="165.0" y="534.5" font-size="15" font-weight="700" fill="#1F2A37" text-anchor="middle" font-style="normal">Airflow local (Docker)</text>
+<text x="165.0" y="561.5" font-size="11.5" font-weight="600" fill="#4B5563" text-anchor="middle" font-style="normal" font-family="'Cascadia Mono', Consolas, 'Courier New', monospace">combustiveis-orquestracao</text>
+<rect x="285" y="508" width="210" height="64" rx="12" fill="#F1F2F4" stroke="#7A828C" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="390.0" y="534.5" font-size="15" font-weight="700" fill="#1F2A37" text-anchor="middle" font-style="normal">Cloud Composer (GCP)</text>
+<text x="390.0" y="561.5" font-size="11.5" font-weight="600" fill="#4B5563" text-anchor="middle" font-style="normal" font-family="'Cascadia Mono', Consolas, 'Courier New', monospace">combustiveis-orquestracao</text>
+<rect x="510" y="508" width="610" height="64" rx="12" fill="#F1F2F4" stroke="#7A828C" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="815.0" y="534.5" font-size="15" font-weight="700" fill="#1F2A37" text-anchor="middle" font-style="normal">Agente de observabilidade (Gemini): diagnostica falhas e abre issue/PR</text>
+<text x="815.0" y="561.5" font-size="11.5" font-weight="600" fill="#4B5563" text-anchor="middle" font-style="normal" font-family="'Cascadia Mono', Consolas, 'Courier New', monospace">combustiveis-agente-observabilidade</text>
+<text x="1425" y="532" font-size="14" font-weight="400" fill="#3D5A8A" text-anchor="middle" font-style="italic">agenda e reexecuta (retry e backfill)</text>
+<text x="1425" y="554" font-size="14" font-weight="400" fill="#3D5A8A" text-anchor="middle" font-style="italic">e alerta todas as etapas acima</text>
+<rect x="40" y="640" width="1720" height="410" rx="16" fill="#FFF8EA" stroke="#D98200" stroke-width="2.5"/>
+<circle cx="42" cy="642" r="15" fill="#1F2A37"/>
+<text x="42" y="648" font-size="16" font-weight="700" fill="#fff" text-anchor="middle" font-style="normal">5</text>
+<text x="70" y="675" font-size="20" font-weight="700" fill="#1F2A37" text-anchor="start" font-style="normal">PORTAL DE GOVERNANÇA DE DADOS</text>
+<text x="500" y="675" font-size="14" font-weight="600" fill="#8A5200" text-anchor="start" font-style="normal" font-family="'Cascadia Mono', Consolas, 'Courier New', monospace">portal-governanca-dados</text>
+<text x="70" y="699" font-size="14.5" font-weight="400" fill="#5B6775" text-anchor="start" font-style="normal">Streamlit no Cloud Run · login Google (IAP) · biblioteca genérica, serve qualquer dataset do BigQuery · protótipo em simulação</text>
+<rect x="60" y="720" width="540" height="150" rx="12" fill="#FFF1D6" stroke="#D98200" stroke-width="2"/>
+<text x="330.0" y="767.5" font-size="17" font-weight="700" fill="#1F2A37" text-anchor="middle" font-style="normal">Metadados</text>
+<text x="330.0" y="793.5" font-size="14.5" font-weight="400" fill="#5B6775" text-anchor="middle" font-style="normal">Amostra mascarada + metadados do Dataplex</text>
+<text x="330.0" y="814.5" font-size="14.5" font-weight="400" fill="#5B6775" text-anchor="middle" font-style="normal">Gemini sugere descrições e classificação</text>
+<text x="330.0" y="835.5" font-size="14.5" font-weight="400" fill="#5B6775" text-anchor="middle" font-style="normal">Revisão humana → grava no BigQuery e Dataplex</text>
+<rect x="630" y="720" width="540" height="150" rx="12" fill="#FFF1D6" stroke="#D98200" stroke-width="2"/>
+<text x="900.0" y="767.5" font-size="17" font-weight="700" fill="#1F2A37" text-anchor="middle" font-style="normal">Data Quality</text>
+<text x="900.0" y="793.5" font-size="14.5" font-weight="400" fill="#5B6775" text-anchor="middle" font-style="normal">Profiling no Dataplex</text>
+<text x="900.0" y="814.5" font-size="14.5" font-weight="400" fill="#5B6775" text-anchor="middle" font-style="normal">Gemini propõe regras, testadas em dado limpo</text>
+<text x="900.0" y="835.5" font-size="14.5" font-weight="400" fill="#5B6775" text-anchor="middle" font-style="normal">Aprovação → YAML versionado e scans no Dataplex</text>
+<rect x="1200" y="720" width="540" height="150" rx="12" fill="#FFF1D6" stroke="#D98200" stroke-width="2"/>
+<text x="1470.0" y="767.5" font-size="17" font-weight="700" fill="#1F2A37" text-anchor="middle" font-style="normal">Catálogo (RAG)</text>
+<text x="1470.0" y="793.5" font-size="14.5" font-weight="400" fill="#5B6775" text-anchor="middle" font-style="normal">Pergunta em português → busca nas fontes</text>
+<text x="1470.0" y="814.5" font-size="14.5" font-weight="400" fill="#5B6775" text-anchor="middle" font-style="normal">Resposta com citação da fonte</text>
+<text x="1470.0" y="835.5" font-size="14.5" font-weight="400" fill="#5B6775" text-anchor="middle" font-style="normal">Sem fonte, responde "não encontrei"</text>
+<text x="900" y="896" font-size="13.5" font-weight="400" fill="#5B6775" text-anchor="middle" font-style="italic">Serviços Google Cloud usados pelos três módulos</text>
+<rect x="60" y="906" width="540" height="52" rx="12" fill="#FFFFFF" stroke="#9AA3AE" stroke-width="2"/>
+<text x="330.0" y="925.5" font-size="15" font-weight="700" fill="#1F2A37" text-anchor="middle" font-style="normal">Dataplex</text>
+<text x="330.0" y="951.5" font-size="13" font-weight="400" fill="#5B6775" text-anchor="middle" font-style="normal">catálogo, profiling e scans de qualidade</text>
+<rect x="630" y="906" width="540" height="52" rx="12" fill="#FFFFFF" stroke="#9AA3AE" stroke-width="2"/>
+<text x="900.0" y="925.5" font-size="15" font-weight="700" fill="#1F2A37" text-anchor="middle" font-style="normal">Vertex AI</text>
+<text x="900.0" y="951.5" font-size="13" font-weight="400" fill="#5B6775" text-anchor="middle" font-style="normal">Gemini e embeddings</text>
+<rect x="1200" y="906" width="540" height="52" rx="12" fill="#FFFFFF" stroke="#9AA3AE" stroke-width="2"/>
+<text x="1470.0" y="925.5" font-size="15" font-weight="700" fill="#1F2A37" text-anchor="middle" font-style="normal">BigQuery</text>
+<text x="1470.0" y="951.5" font-size="13" font-weight="400" fill="#5B6775" text-anchor="middle" font-style="normal">dados, amostras e busca vetorial</text>
+<rect x="60" y="982" width="1680" height="46" rx="10" fill="#FFF1D6" stroke="#D98200" stroke-width="1.5"/>
+<text x="900" y="1011" font-size="14.5" font-weight="600" fill="#1F2A37" text-anchor="middle" font-style="normal">Núcleo comum: mascaramento de dados sensíveis · auditoria com desfazer · aprovação humana antes de gravar · limites de custo</text>
+<polyline points="1180,415 1180,640" fill="none" stroke="#5B6775" stroke-width="2" stroke-dasharray="7 6" stroke-linejoin="round" marker-end="url(#arrowDash)"/>
+<polyline points="1655,415 1655,640" fill="none" stroke="#5B6775" stroke-width="2" stroke-dasharray="7 6" stroke-linejoin="round" marker-end="url(#arrowDash)"/>
+<text x="1195" y="620" font-size="13.5" font-weight="400" fill="#5B6775" text-anchor="start" font-style="italic">lê esquema, amostra mascarada e profiling</text>
+<text x="1668" y="620" font-size="13.5" font-weight="400" fill="#5B6775" text-anchor="start" font-style="italic">lê os marts</text>
+<rect x="40" y="1068" width="26" height="18" rx="4" fill="#E3F4E7" stroke="#0A5C20" stroke-width="2"/>
+<text x="76" y="1082" font-size="14.5" font-weight="400" fill="#1F2A37" text-anchor="start" font-style="normal">Pronto</text>
+<rect x="159.2" y="1068" width="26" height="18" rx="4" fill="#FFF1D6" stroke="#D98200" stroke-width="2"/>
+<text x="195.2" y="1082" font-size="14.5" font-weight="400" fill="#1F2A37" text-anchor="start" font-style="normal">Em andamento ou protótipo</text>
+<rect x="434.2" y="1068" width="26" height="18" rx="4" fill="#F1F2F4" stroke="#7A828C" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="470.2" y="1082" font-size="14.5" font-weight="400" fill="#1F2A37" text-anchor="start" font-style="normal">Planejado</text>
+<rect x="578.0" y="1068" width="26" height="18" rx="4" fill="#FFFFFF" stroke="#9AA3AE" stroke-width="2"/>
+<text x="614.0" y="1082" font-size="14.5" font-weight="400" fill="#1F2A37" text-anchor="start" font-style="normal">Fonte ou serviço externo</text>
+<polyline points="844.8,1077 890.8,1077" fill="none" stroke="#1F2A37" stroke-width="2.5" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<text x="900.8" y="1082" font-size="14.5" font-weight="400" fill="#1F2A37" text-anchor="start" font-style="normal">fluxo de dados</text>
+<polyline points="1045.6,1077 1091.6,1077" fill="none" stroke="#5B6775" stroke-width="2" stroke-dasharray="7 6" stroke-linejoin="round" marker-end="url(#arrowDash)"/>
+<text x="1101.6" y="1082" font-size="14.5" font-weight="400" fill="#1F2A37" text-anchor="start" font-style="normal">leitura ou consulta</text>
+<text x="40" y="1112" font-size="14" font-weight="400" fill="#5B6775" text-anchor="start" font-style="normal">Números nas caixas: 1 entrada dos dados · 2 processamento · 3 transformação · 4 consumo · 5 governança com IA</text>
+<text x="40" y="1134" font-size="14" font-weight="400" fill="#5B6775" text-anchor="start" font-style="normal">Texto em fonte monoespaçada: nome da pasta do projeto no repositório</text>
+</svg>
