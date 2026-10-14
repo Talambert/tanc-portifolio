@@ -10,6 +10,7 @@
 ![Business Intelligence](https://img.shields.io/badge/Business_Intelligence-1F6AA5?style=for-the-badge)
 ![Google Cloud](https://img.shields.io/badge/Google_Cloud-4285F4?style=for-the-badge&logo=googlecloud&logoColor=white)
 ![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white)
+![IA aplicada a dados](https://img.shields.io/badge/IA_aplicada_a_dados-8E75B2?style=for-the-badge&logo=googlegemini&logoColor=white)
 
 [💼 LinkedIn](https://br.linkedin.com/in/tancredo-alambert-14a45119) · [✉️ E-mail](mailto:t.alambert@gmail.com) · [🐙 GitHub](https://github.com/Talambert)
 
@@ -24,6 +25,7 @@ Trabalho com **dados e BI há muitos anos**, e foi nesse tempo que aprendi uma c
 - 🏗️ **Construo pipelines e plataformas de dados** que rodam todo dia sem chamar ninguém de madrugada.
 - 📊 **Entrego BI de ponta a ponta**: da modelagem ao painel que a diretoria realmente abre.
 - ☁️ **Penso em nuvem**, custo e segurança desde o primeiro desenho.
+- 🤖 **Uso IA para dar mais valor ao dado.** Já usei o **Vertex AI** para sugerir metadados de tabelas, combinando o que o **Dataplex** já catalogava, uma pequena amostra de dados no **BigQuery** e os metadados existentes, e já criei agentes de IA. Nos projetos abaixo, estou aprofundando esse caminho: servidor MCP, RAG, agentes e, principalmente, **como medir se a IA acerta**.
 - 🤝 **Falo a língua do negócio e a da engenharia**, e traduzo uma para a outra.
 
 > 💡 *"Bom dado é aquele em que ninguém precisa perguntar de onde veio."*
@@ -35,8 +37,10 @@ Trabalho com **dados e BI há muitos anos**, e foi nesse tempo que aprendi uma c
 | Área | O que uso |
 |---|---|
 | 🐍 **Linguagens** | Python · SQL |
-| ☁️ **Cloud** | Google Cloud Platform (Cloud Storage e correlatos) |
+| ☁️ **Cloud** | Google Cloud Platform (BigQuery · Cloud Storage · Dataplex · Vertex AI) |
 | 🔄 **Engenharia de dados** | Ingestão · ETL/ELT · Orquestração · Modelagem dimensional |
+| 🤖 **IA aplicada a dados** | Vertex AI (Gemini) · Enriquecimento de metadados com Dataplex e BigQuery · Agentes de IA |
+| 🗂️ **Governança e catálogo** | Metadados · Catálogo de dados (Dataplex) · Documentação de dados |
 | 📈 **BI e visualização** | Dashboards · Modelagem semântica · Storytelling com dados |
 | 🧰 **Boas práticas** | Git · Versionamento · Documentação · Segurança de credenciais |
 
@@ -55,9 +59,14 @@ Cada pasta deste repositório é um projeto independente, com o próprio README,
 | 🧱 | **[Modelagem Dimensional com dbt](combustiveis-dbt/)** | Esquema estrela, testes automáticos e documentação com linhagem sobre os dados de combustíveis. | `dbt` `BigQuery` `SQL` | 🚧 Planejado |
 | 🎼 | **[Orquestração com Airflow e Composer](combustiveis-orquestracao/)** | O mesmo DAG rodando no Airflow local e no Cloud Composer, com retries, backfill e alertas. | `Airflow` `Cloud Composer` `Docker` | 🚧 Planejado |
 | 📊 | **[Painel de Combustíveis no Power BI](combustiveis-bi-powerbi/)** | Painel sobre o modelo dimensional, que responde onde o combustível está mais caro e quando compensa o etanol. | `Power BI` `DAX` `BigQuery` | 🚧 Planejado |
+| 🔌 | **[Servidor MCP para o BigQuery](combustiveis-mcp-bigquery/)** | Camada segura entre IA e dados: somente leitura, limite de custo, autenticação e auditoria de cada consulta. | `MCP` `Python` `BigQuery` `Cloud Run` | 🚧 Planejado |
+| 🤖 | **[Agente de Dados com Gemini](combustiveis-agente-dados/)** | Pergunte em português sobre os preços e receba tabela, SQL e custo, com acurácia medida em um conjunto de avaliação. | `Vertex AI` `Gemini` `ADK` `Python` | 🚧 Planejado |
+| 🛡️ | **[Agente de Observabilidade de Pipelines](combustiveis-agente-observabilidade/)** | Agente que investiga falhas do Airflow e do dbt, explica a causa provável e propõe a correção em um PR em rascunho para revisão humana. | `Vertex AI` `Gemini` `Airflow` `dbt` | 🚧 Planejado |
+| 🛡️ | **[Portal de Governança de Dados](portal-governanca-dados/)** | Portal web e biblioteca **genéricos** para qualquer dataset do BigQuery, com três módulos: sugere metadados, propõe regras de data quality e responde perguntas sobre os dados com citação da fonte (RAG). Usa Dataplex e Gemini, com revisão humana. Roda no Cloud Run. | `Dataplex` `BigQuery` `Vertex AI` `RAG` `Streamlit` `Cloud Run` | 🔨 Protótipo (simulação) |
+| 🧾 | **[Extração de Documentos com IA](extracao-documentos-ia/)** | Extrai dados estruturados de PDFs e planilhas sem padrão, valida cada campo e envia o duvidoso para quarentena. | `Vertex AI` `Gemini` `Pydantic` `BigQuery` | 🚧 Planejado |
 | 🔜 | *Próximo projeto* | *Em breve…* | | 🚧 Planejado |
 
-> ⛽ Os quatro projetos `combustiveis-*` formam **uma única história**: do arquivo cru da ANP ao painel de decisão.
+> ⛽ Os projetos `combustiveis-*` formam **uma única história**: do arquivo cru da ANP ao painel de decisão e, depois, a uma IA que responde perguntas sobre os dados com segurança.
 
 ---
 
@@ -96,6 +105,11 @@ tanc-portifolio/
 ├── 📁 combustiveis-dbt/             🧱  Modelagem dimensional com dbt
 ├── 📁 combustiveis-orquestracao/    🎼  Airflow local e Cloud Composer
 ├── 📁 combustiveis-bi-powerbi/      📊  Painel no Power BI
+├── 📁 combustiveis-mcp-bigquery/    🔌  Servidor MCP seguro para o BigQuery
+├── 📁 combustiveis-agente-dados/    🤖  Agente de IA (Gemini no Vertex AI)
+├── 📁 combustiveis-agente-observabilidade/  🛡️  Agente que diagnostica falhas de pipeline
+├── 📁 portal-governanca-dados/      🛡️  Portal de governança: metadados, data quality e catálogo (RAG)
+├── 📁 extracao-documentos-ia/       🧾  Extração estruturada de documentos
 ├── 📁 planos/                       🗺️  Roadmap e planos de desenvolvimento
 └── 📄 README.md                     ← você está aqui
 ```
