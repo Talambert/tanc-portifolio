@@ -8,8 +8,24 @@ Roadmap dos próximos projetos do portfólio. Os quatro projetos contam **uma ú
 | 2 | `combustiveis-dbt` | [02-combustiveis-dbt.md](02-combustiveis-dbt.md) | 5 |
 | 3 | `combustiveis-orquestracao` | [03-combustiveis-orquestracao.md](03-combustiveis-orquestracao.md) | 6 |
 | 4 | `combustiveis-bi-powerbi` | [04-combustiveis-bi-powerbi.md](04-combustiveis-bi-powerbi.md) | 7 |
+| 5 | `combustiveis-mcp-bigquery` | [05-combustiveis-mcp-e-agente.md](05-combustiveis-mcp-e-agente.md) (Parte A) | 9 |
+| 6 | `combustiveis-agente-dados` | [05-combustiveis-mcp-e-agente.md](05-combustiveis-mcp-e-agente.md) (Parte B) | 10 a 13 |
 
-Fase 8 (acabamento do repositório) está no fim deste arquivo.
+Fase 8 (acabamento dos projetos 1 a 4) está no fim deste arquivo. Os projetos 5 e 6 têm o próprio acabamento (Fase 13) no plano deles.
+
+### 🤖 Projetos de IA (somente Vertex AI)
+
+| # | Projeto (pasta) | Plano | Fases | Depende de |
+|:-:|---|---|:-:|---|
+| 7 | `combustiveis-agente-observabilidade` | [06-combustiveis-agente-observabilidade.md](06-combustiveis-agente-observabilidade.md) | 14 a 17 | Projetos 2 (dbt) e 3 (Airflow) |
+| 8 | `extracao-documentos-ia` | [07-extracao-documentos-ia.md](07-extracao-documentos-ia.md) | 18 a 21 | Independente; pode alimentar o projeto 1 |
+| 9 | `portal-governanca-dados` | [08-portal-governanca-dados.md](08-portal-governanca-dados.md) | 22 a 29 | **Genérico** (qualquer dataset do BigQuery). Os projetos 1 e 2 fornecem dados de demonstração e o gabarito de avaliação |
+
+> Os arquivos de plano seguem a numeração dos projetos, com uma exceção: `05` cobre dois projetos (o servidor MCP e o agente de dados).
+>
+> 🛡️ O projeto 9 é uma **biblioteca + portal no Cloud Run** com menu de governança e três módulos: **Metadados**, **Data Quality** e **Catálogo (RAG)**. Ele **não é específico de combustíveis**, e o menu foi pensado para receber outros módulos no futuro.
+
+> 🤖 Os projetos 5 e 6 usam **somente o Vertex AI** (Gemini) e dependem dos marts do projeto 2. Não dependem do Airflow (projeto 3) nem do Power BI (projeto 4).
 
 ## Fluxo de ponta a ponta
 
@@ -78,7 +94,8 @@ Base: `https://www.gov.br/anp/pt-br/centrais-de-conteudo/dados-abertos/arquivos/
 3. Fase 5 (dbt: staging e marts)
 4. Fase 6 (orquestração local, depois Composer)
 5. Fase 7 (Power BI)
-6. Fase 8 (acabamento)
+6. Fase 8 (acabamento dos projetos 1 a 4)
+7. Fases 9 a 13 (servidor MCP e agente de IA), que podem começar assim que o projeto 2 terminar, em paralelo às fases 6 e 7
 
 Cada fase termina com algo que **funciona e pode ser mostrado**. Não se avança com a fase anterior quebrada.
 
