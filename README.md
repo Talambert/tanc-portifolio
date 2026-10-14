@@ -70,6 +70,26 @@ Cada pasta deste repositório é um projeto independente, com o próprio README,
 
 ---
 
+## 🏗️ Arquitetura geral
+
+Como as peças se encaixam, do arquivo cru ao painel e ao portal de governança. As cores mostram o status de cada parte, e o nome em fonte monoespaçada em cada caixa é a **pasta do projeto** neste repositório. O desenho é atualizado conforme os projetos avançam.
+
+[![Arquitetura do portfólio: do arquivo cru da ANP, passando por bucket, silver, gold, Power BI e agente de dados, até o portal de governança com metadados, data quality e catálogo](docs/arquitetura.png)](docs/arquitetura.svg)
+
+<sub>Clique na imagem para abrir a versão vetorial (SVG), que dá zoom sem perder nitidez.</sub>
+
+**Lendo o desenho, da esquerda para a direita:**
+
+1. **Entrada:** os arquivos chegam ao **Cloud Storage (bronze)** por dois caminhos: o *download* dos dados abertos da ANP e o **upload de parceiros** pelo app desktop [gcp-file-uploader](gcp-file-uploader/). Documentos sem padrão (PDF e planilhas) entram por um pipeline próprio de extração com IA, que valida e manda o duvidoso para quarentena.
+2. **Processamento:** o mesmo contrato de dados é implementado em **Python (Cloud Run Jobs)** e em **PySpark (Dataproc Serverless)**, gerando a camada **silver** no BigQuery, limpa, tipada e com quarentena das linhas malformadas.
+3. **Transformação:** o **dbt** monta o modelo dimensional (fato e dimensões) na camada **gold**, com testes e documentação.
+4. **Consumo:** a gold alimenta o painel no **Power BI** e um **agente de dados (Gemini)** que responde perguntas em português por um servidor MCP somente leitura.
+5. **Governança com IA:** o **portal de governança** lê o esquema, uma amostra mascarada e o profiling das tabelas e, com Dataplex e Vertex AI, **sugere metadados**, **propõe regras de data quality** (testadas antes de publicar) e **serve o catálogo** com resposta citando a fonte. Nada é gravado sem aprovação humana.
+
+Por baixo de tudo, **Airflow (local) e Cloud Composer** orquestram as etapas, e um **agente de observabilidade** diagnostica falhas do Airflow e do dbt.
+
+---
+
 ## 🔎 Em destaque
 
 ### ☁️ [GCP File Uploader](gcp-file-uploader/)
@@ -110,6 +130,7 @@ tanc-portifolio/
 ├── 📁 combustiveis-agente-observabilidade/  🛡️  Agente que diagnostica falhas de pipeline
 ├── 📁 portal-governanca-dados/      🛡️  Portal de governança: metadados, data quality e catálogo (RAG)
 ├── 📁 extracao-documentos-ia/       🧾  Extração estruturada de documentos
+├── 📁 docs/                         🏗️  Diagrama de arquitetura (PNG, SVG e gerador)
 ├── 📁 planos/                       🗺️  Roadmap e planos de desenvolvimento
 └── 📄 README.md                     ← você está aqui
 ```
