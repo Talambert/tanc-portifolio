@@ -63,5 +63,13 @@ mypy_path = "src"
 packages = ["dataeng_core"]
 
 [[tool.mypy.overrides]]
-module = "dataeng_core.base.*"
-strict = true
+module = ["dataeng_core.base", "dataeng_core.base.*"]
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+disallow_untyped_calls = true
+disallow_any_generics = true
+check_untyped_defs = true
+no_implicit_reexport = true
+warn_return_any = true
+disallow_untyped_decorators = true
+disallow_subclassing_any = true

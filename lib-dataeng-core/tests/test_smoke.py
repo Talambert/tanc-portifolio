@@ -17,4 +17,5 @@ def test_version_is_semver() -> None:
 
 @pytest.mark.parametrize("layer", LAYERS)
 def test_all_layers_importable(layer: str) -> None:
-    assert importlib.import_module(f"dataeng_core.{layer}")
+    mod = importlib.import_module(f"dataeng_core.{layer}")
+    assert mod.__name__ == f"dataeng_core.{layer}"
