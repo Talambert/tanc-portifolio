@@ -2,6 +2,7 @@ import pandas as pd
 import yaml
 
 from governanca.catalogo import service as catalogo
+from governanca.core import store
 from governanca.metadados import service as metadados
 from governanca.mock import data as mock
 from governanca.qualidade import service as qualidade
@@ -92,3 +93,41 @@ def test_catalog_uses_descriptions_applied_by_metadata_module():
     answer = catalogo.answer("valor total do pedido tem desconto?", corpus)
     assert not answer.abstained
     assert answer.citations[0][0].source == "Metadados (gravados no portal)"
+
+
+# ---------- YAML, cobertura e persistência ----------
+
+def test_yaml_keeps_value_lists_on_one_line():
+    rules = qualidade.propose("combustiveis_gold", ["dim_localidade"])
+    text = qualidade.to_yaml(rules)
+    assert "- AC" not in text, "as 27 UFs não devem ocupar uma linha cada"
+    assert "AC, AL" in text
+    assert yaml.safe_load(text)[0]["regras"][0]["valores"][:2] == ["AC", "AL"]
+
+
+def test_rule_roundtrip_through_dict():
+    rule = qualidade.propose("vendas_demo", ["pedidos"])[1]
+    assert qualidade.rule_from_dict(qualidade.rule_to_dict(rule)) == rule
+
+
+def test_documentation_coverage_grows_when_descriptions_are_applied():
+    before = sum(r["documentados"] for r in metadados.documentation_coverage())
+    applied = {"vendas_demo.pedidos.status": "Situação do pedido.", "vendas_demo.pedidos.*": "Pedidos."}
+    after = sum(r["documentados"] for r in metadados.documentation_coverage(applied))
+    assert after == before + 2
+    assert all(0 <= r["documentados"] <= r["objetos"] for r in metadados.documentation_coverage(applied))
+
+
+def test_store_roundtrip_and_resilience(isolated_state, monkeypatch):
+    store.save({"applied_meta": {"a.b.c": "texto"}})
+    assert store.load() == {"applied_meta": {"a.b.c": "texto"}}
+
+    isolated_state.write_text("{ isto não é json", encoding="utf-8")
+    assert store.load() == {}, "arquivo corrompido não pode derrubar o portal"
+
+    store.reset()
+    assert not isolated_state.exists()
+
+    monkeypatch.setenv("GOVERNANCA_STATE_FILE", "off")
+    store.save({"x": 1})
+    assert store.load() == {}

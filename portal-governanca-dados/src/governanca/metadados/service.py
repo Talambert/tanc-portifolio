@@ -56,3 +56,17 @@ def generate(dataset: str, tables: list[str]) -> list[Suggestion]:
 
 def schema_of(dataset: str, table: str) -> list[tuple[str, str, str]]:
     return mock.DATASETS[dataset][table]["columns"]
+
+
+def documentation_coverage(applied: dict[str, str] | None = None) -> list[dict]:
+    """Cobertura de documentação por tabela: objetos (tabela e colunas) com descrição, existente ou gravada no portal."""
+    applied = applied or {}
+    rows = []
+    for dataset, tables in mock.DATASETS.items():
+        for table, info in tables.items():
+            objects = [(f"{dataset}.{table}.*", info["description"])] + [
+                (f"{dataset}.{table}.{name}", existing) for name, _type, existing in info["columns"]
+            ]
+            documented = sum(bool(applied.get(key, existing).strip()) for key, existing in objects)
+            rows.append({"dataset": dataset, "tabela": table, "objetos": len(objects), "documentados": documented})
+    return rows

@@ -4,7 +4,7 @@ A avaliação das regras é real (roda em pandas sobre as amostras). Só a orige
 propostas é simulada; no modo real, o profiling e os scans passam a ser executados no Dataplex.
 """
 import re
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 
 import pandas as pd
 import yaml
@@ -112,6 +112,26 @@ def scan(rule: Rule) -> float:
     return evaluate(mock.get_sample(rule.dataset, rule.table, dirty=True), rule)
 
 
+class _CompactDumper(yaml.SafeDumper):
+    """Listas de valores simples (ex.: as 27 UFs) saem em uma linha, o resto segue em blocos legíveis."""
+
+
+def _represent_list(dumper: yaml.SafeDumper, data: list):
+    simple = all(not isinstance(item, (dict, list)) for item in data)
+    return dumper.represent_sequence("tag:yaml.org,2002:seq", data, flow_style=True if simple else None)
+
+
+_CompactDumper.add_representer(list, _represent_list)
+
+
+def rule_to_dict(rule: Rule) -> dict:
+    return asdict(rule)
+
+
+def rule_from_dict(data: dict) -> Rule:
+    return Rule(**data)
+
+
 def to_yaml(rules: list[Rule]) -> str:
     """Regras como código: um YAML por tabela, pronto para ir ao git."""
     by_table: dict[str, list[dict]] = {}
@@ -120,4 +140,4 @@ def to_yaml(rules: list[Rule]) -> str:
                  "justificativa": r.justification, "origem": r.origin, "confianca": r.confidence}
         by_table.setdefault(f"{r.dataset}.{r.table}", []).append(entry)
     document = [{"tabela": table, "regras": entries} for table, entries in by_table.items()]
-    return yaml.safe_dump(document, allow_unicode=True, sort_keys=False)
+    return yaml.dump(document, Dumper=_CompactDumper, allow_unicode=True, sort_keys=False, width=110)

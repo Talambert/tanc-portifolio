@@ -5,6 +5,7 @@ Dois datasets de propósito, para mostrar que o portal não depende de uma base 
 Quando o modo real existir, estas funções são substituídas por leituras do Dataplex e do BigQuery.
 """
 import random
+from functools import lru_cache
 
 import pandas as pd
 
@@ -242,7 +243,16 @@ def _cpf(rng: random.Random) -> str:
 
 
 def get_sample(dataset: str, table: str, dirty: bool = False, n: int = 200) -> pd.DataFrame:
-    """Amostra fictícia da tabela. `dirty=True` injeta defeitos conhecidos (a "realidade" que o profiling revela)."""
+    """Amostra fictícia da tabela. `dirty=True` injeta defeitos conhecidos (a "realidade" que o profiling revela).
+
+    A geração é determinística, então o resultado é guardado em cache e cada chamada recebe uma cópia
+    (quem chama pode alterar o DataFrame à vontade).
+    """
+    return _sample(dataset, table, dirty, n).copy()
+
+
+@lru_cache(maxsize=64)
+def _sample(dataset: str, table: str, dirty: bool, n: int) -> pd.DataFrame:
     rng = random.Random(f"{dataset}.{table}")
     defect = lambda: dirty and rng.random() < 0.04  # noqa: E731 - 4% de defeitos
 

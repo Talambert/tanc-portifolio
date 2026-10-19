@@ -15,3 +15,6 @@ __pycache__/
 *.tfstate.*
 *.tfvars
 !*.tfvars.example
+
+# Estado local do protótipo
+.data/
