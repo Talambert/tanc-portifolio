@@ -10,7 +10,7 @@ import time
 from collections.abc import Callable, Iterable
 from contextvars import ContextVar
 from datetime import UTC, datetime
-from typing import TypeVar
+from typing import TextIO, TypeVar
 
 T = TypeVar("T")
 
@@ -32,6 +32,8 @@ def retry(
     sleep: Callable[[float], None] = time.sleep,
 ) -> T:
     """Executa `fn` até `attempts` vezes, com espera `base_delay * 2**tentativa`."""
+    if attempts < 1:
+        raise ValueError("attempts deve ser >= 1")
     attempt = 0
     while True:
         try:
@@ -59,13 +61,29 @@ class _JsonFormatter(logging.Formatter):
         return json.dumps(payload, ensure_ascii=False)
 
 
+class _StderrHandler(logging.StreamHandler):  # type: ignore[type-arg]
+    """Handler que resolve `sys.stderr` a cada emissão."""
+
+    _dataeng = True
+
+    def __init__(self) -> None:
+        super().__init__(sys.stderr)
+
+    @property
+    def stream(self) -> TextIO:  # type: ignore[override]
+        return sys.stderr
+
+    @stream.setter
+    def stream(self, value: TextIO) -> None:
+        pass
+
+
 def get_logger(name: str) -> logging.Logger:
     """Logger que escreve linhas JSON em stderr, com `run_id` quando definido."""
     logger = logging.getLogger(name)
     if not any(getattr(h, "_dataeng", False) for h in logger.handlers):
-        handler = logging.StreamHandler(sys.stderr)
+        handler = _StderrHandler()
         handler.setFormatter(_JsonFormatter())
-        handler._dataeng = True  # type: ignore[attr-defined]
         logger.addHandler(handler)
         logger.setLevel(logging.INFO)
         logger.propagate = False
@@ -74,7 +92,6 @@ def get_logger(name: str) -> logging.Logger:
 
 def redact(text: str, secrets: Iterable[str]) -> str:
     """Troca cada segredo (não vazio) por `***`."""
-    for secret in secrets:
-        if secret:
-            text = text.replace(secret, "***")
+    for secret in sorted({s for s in secrets if s}, key=len, reverse=True):
+        text = text.replace(secret, "***")
     return text

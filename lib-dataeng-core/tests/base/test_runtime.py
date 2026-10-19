@@ -71,3 +71,28 @@ def test_logger_emits_json_with_run_id(capsys: pytest.CaptureFixture[str]) -> No
     assert data["run_id"] == "RID1"
     assert data["level"] == "INFO"
     assert isinstance(log, logging.Logger)
+
+
+@pytest.mark.parametrize("order", [["abc", "abcdef"], ["abcdef", "abc"]])
+def test_redact_overlapping_secrets_leaves_no_fragment(order: list[str]) -> None:
+    out = runtime.redact("Bearer abcdef", order)
+    assert out == "Bearer ***"
+    assert "def" not in out
+
+
+def test_redact_ignores_duplicate_secrets() -> None:
+    assert runtime.redact("x=abc", ["abc", "abc"]) == "x=***"
+
+
+@pytest.mark.parametrize("attempts", [0, -1])
+def test_retry_rejects_non_positive_attempts(attempts: int) -> None:
+    with pytest.raises(ValueError):
+        runtime.retry(lambda: 1, attempts=attempts)
+
+
+def test_logger_follows_current_stderr(capsys: pytest.CaptureFixture[str]) -> None:
+    log = runtime.get_logger("dataeng_core.teste_stderr")
+    log.info("a")
+    assert "a" in capsys.readouterr().err
+    log.info("b")
+    assert "b" in capsys.readouterr().err
