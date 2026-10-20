@@ -11,23 +11,32 @@ Idempotência (reexecutar não duplica nem perde linhas):
 - `append`: acrescenta, mas substitui as linhas do mesmo `_run_id` (reexecutar o mesmo run não duplica);
 - quarentena: substitui pela mesma chave da silver (`_ingestion_date` em `overwrite_particao` por
   `_ingestion_date`; `_run_id` nos demais casos).
-`_ingestion_date` vem da data do `run_id` (formato de `new_run_id`), para que a reexecução de um run em
-outro dia caia na mesma partição; para outros formatos de `run_id`, é a data UTC atual.
+`_ingestion_date` vem de `ctx.params["ingestion_date"]` (preenchido por `build_context`: data explícita
+ou a data do `run_id`), para que a reexecução de um run em outro dia caia na mesma partição.
 
-Entrada vazia (arquivo vazio, só cabeçalho, API sem registros): sucesso com zero linhas; a silver e a
-quarentena não são tocadas.
+Entrada vazia (arquivo vazio, só cabeçalho, API sem registros) ou com todas as linhas rejeitadas: sucesso
+com zero linhas; a silver e a quarentena (se vazia) não são tocadas. Se nada foi carregado e a tabela de
+destino ainda não existe, o `dml_pos_carga` é pulado (ele leria uma tabela inexistente) e o detalhe diz isso.
+
+Colunas reservadas (`_run_id`, `_source_file`, `_loaded_at`, `_ingestion_date`, `_motivo`,
+`_linha_original`) não podem vir da origem: a etapa falha com o nome da coluna.
+
+Limitações conhecidas:
+- reexecutar o mesmo `run_id` com a origem ALTERADA não remove linhas antigas que deixaram de existir
+  (em `merge`, chaves que sumiram; em `overwrite_particao`, partições que sumiram);
+- em `overwrite_particao` por coluna de dados (não `_ingestion_date`), a quarentena é chaveada por
+  `_run_id` (as rejeitadas não têm a coluna de partição confiável);
+- se a reexecução não tiver rejeitadas, as rejeitadas antigas com a mesma chave continuam na quarentena.
 
 Mensagens de falha nunca trazem valores dos dados; o segredo da API passa por `redact`.
 """
 
 from __future__ import annotations
 
-import base64
 import datetime as dt
 import hashlib
 import json
 import math
-import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
@@ -45,8 +54,8 @@ from dataeng_core.quality.checks import CheckResult, raise_if_blocking, run_chec
 from dataeng_core.sources.api import fetch_records
 from dataeng_core.sources.files import extract_zip_members, read_file
 from dataeng_core.sql.render import render_sql, split_with_lines
-from dataeng_core.steps.context import StepContext, StepResult
-from dataeng_core.steps.registry import register_step_type
+from dataeng_core.steps.context import StepContext, StepResult, resolve_ingestion_date
+from dataeng_core.steps.registry import log_unexpected, register_step_type, step_secrets
 from dataeng_core.transform.engine_pandas import MOTIVO, apply_transform
 from dataeng_core.warehouse.base import LoadMode, split_table, validate_identifier
 
@@ -57,9 +66,10 @@ QUARANTINE_SUFFIX = "_rejeitados"
 SOURCE_FILE = "_source_file"
 CONTROL_COLUMNS = ("_run_id", SOURCE_FILE, "_loaded_at", "_ingestion_date")
 LINHA_ORIGINAL = "_linha_original"
-HTTP_TIMEOUT_S = 120.0
-
-_RUN_ID_DATE = re.compile(r"(\d{4})(\d{2})(\d{2})T\d{6}-")
+RESERVED_COLUMNS = (*CONTROL_COLUMNS, MOTIVO, LINHA_ORIGINAL)
+HTTP_TIMEOUT_S = (10.0, 120.0)  # (conexão, leitura)
+MAX_DOWNLOAD_BYTES = 512 * 1024**2
+_CHUNK = 1024 * 1024
 _UNSAFE_NAME = re.compile(r"[^\w.-]")
 # dtype para coluna toda nula, para o warehouse não inferir um tipo errado (o DuckDB infere INTEGER)
 _NULL_DTYPES = {
@@ -85,28 +95,17 @@ class _Progress:
 # --------------------------------------------------------------------------- utilitários
 
 
-def ingestion_date_for(run_id: str) -> dt.date:
-    """Data do `run_id` (`AAAAMMDDTHHMMSS-...`) ou, se não houver, a data UTC atual."""
-    m = _RUN_ID_DATE.match(run_id)
-    if m:
-        try:
-            return dt.date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
-        except ValueError:
-            pass
-    return dt.datetime.now(dt.UTC).date()
-
-
-def _secrets(origem: Any) -> list[str]:
-    """Textos sensíveis da origem (o segredo da API e suas formas codificadas)."""
-    if not isinstance(origem, ApiOrigem) or origem.autenticacao.tipo == "none":
-        return []
-    secret = os.environ.get(origem.autenticacao.segredo_env or "", "")
-    if not secret:
-        return []
-    out = [secret, base64.b64encode(secret.encode("utf-8")).decode("ascii")]
-    if ":" in secret:
-        out.append(secret.split(":", 1)[1])
-    return out
+def ingestion_date_of(ctx: StepContext) -> dt.date:
+    """Data de ingestão do contexto (`params["ingestion_date"]`, ou a data do `run_id`)."""
+    text = ctx.params.get("ingestion_date")
+    if text is None:
+        return resolve_ingestion_date(ctx.run_id, None)
+    try:
+        return dt.date.fromisoformat(text)
+    except ValueError as exc:
+        raise ConfigError(
+            f"parâmetro ingestion_date inválido: '{text[:40]}'; use AAAA-MM-DD", operation="ingestao"
+        ) from exc
 
 
 def _safe_name(name: str, fallback: str) -> str:
@@ -167,30 +166,57 @@ def _quarantine_key(destino: Destino) -> str:
 
 
 def _download(url: str) -> bytes:
+    """GET sem seguir redirecionamentos, em pedaços e com teto de `MAX_DOWNLOAD_BYTES`."""
     safe = _safe_url(url)
+    limit = MAX_DOWNLOAD_BYTES
     problem: str | None = None
-    response: requests.Response | None = None
     try:
-        response = requests.get(url, timeout=HTTP_TIMEOUT_S)
+        response = requests.get(url, timeout=HTTP_TIMEOUT_S, allow_redirects=False, stream=True)
     except requests.RequestException as exc:
-        problem = f"falha de rede ({type(exc).__name__}) ao baixar {safe}"
-    if response is None:
-        raise SourceError(f"{problem}; verifique a URL e a conectividade", operation="ingestao.download")
-    if response.status_code >= 400:
-        raise SourceError(
-            f"HTTP {response.status_code} ao baixar {safe}; verifique a URL em `origem.localizacao`",
-            operation="ingestao.download",
-        )
-    return response.content
+        problem = f"falha de rede ({type(exc).__name__}) ao baixar {safe}; verifique a URL e a conectividade"
+    if problem is not None:
+        raise SourceError(problem, operation="ingestao.download")
+    with response:
+        status = response.status_code
+        if 300 <= status < 400:
+            raise SourceError(
+                f"o servidor respondeu com redirecionamento (HTTP {status}) em {safe}; redirecionamentos não são "
+                "seguidos: use a URL final em `origem.localizacao`",
+                operation="ingestao.download",
+            )
+        if status >= 400:
+            raise SourceError(
+                f"HTTP {status} ao baixar {safe}; verifique a URL em `origem.localizacao`",
+                operation="ingestao.download",
+            )
+        out = bytearray()
+        try:
+            for chunk in response.iter_content(chunk_size=_CHUNK):
+                out += chunk
+                if len(out) > limit:
+                    problem = f"o download de {safe} excede o limite de {limit} bytes"
+                    break
+        except requests.RequestException as exc:
+            problem = f"falha de rede ({type(exc).__name__}) durante o download de {safe}"
+    if problem is not None:
+        raise SourceError(problem, operation="ingestao.download")
+    return bytes(out)
 
 
 def _read_location(origem: ArquivoOrigem, ctx: StepContext) -> tuple[str, bytes]:
     """Devolve (nome do arquivo, bytes). Aceita `gs://`, `http(s)://` ou caminho local (relativo à raiz)."""
     loc = origem.localizacao
-    if loc.startswith("gs://"):
+    scheme = urlsplit(loc).scheme.lower()
+    if scheme == "gs":
         return loc.rstrip("/").rsplit("/", 1)[-1], ctx.storage.read(loc)
-    if loc.startswith(("http://", "https://")):
+    if scheme in ("http", "https"):
         return PurePosixPath(urlsplit(loc).path).name, _download(loc)
+    if len(scheme) > 1:  # esquema de uma letra é a unidade do Windows (ex.: C:)
+        raise ConfigError(
+            f"esquema '{scheme}://' não suportado em `origem.localizacao`; use gs://, http://, https:// "
+            "ou um caminho local",
+            operation="ingestao.leitura",
+        )
     path = Path(loc)
     if not path.is_absolute():
         path = ctx.project_root / path
@@ -199,6 +225,17 @@ def _read_location(origem: ArquivoOrigem, ctx: StepContext) -> tuple[str, bytes]
             f"arquivo de origem inexistente: {path}; confira `origem.localizacao`", operation="ingestao.leitura"
         )
     return path.name, path.read_bytes()
+
+
+def _check_reserved(columns: Any, where: str) -> None:
+    reserved = [str(c) for c in columns if c in RESERVED_COLUMNS]
+    if reserved:
+        nomes = ", ".join(f"coluna reservada '{c}'" for c in reserved)
+        raise SourceError(
+            f"{where} tem {nomes}; renomeie-a na origem (nomes reservados pela biblioteca: "
+            f"{', '.join(RESERVED_COLUMNS)})",
+            operation="ingestao.leitura",
+        )
 
 
 def _with_source(frame: pd.DataFrame, source: str) -> pd.DataFrame:
@@ -220,6 +257,7 @@ def _parse_file(
     """(linhas, rejeitadas na leitura), ambas com `_source_file`. Zip: lê os membros do formato da origem."""
     if not name.lower().endswith(".zip"):
         res = read_file(data, origem, schema)
+        _check_reserved(res.rows.columns, "o arquivo")
         return _with_source(res.rows, uri), _with_source(res.rejected, uri)
     members = extract_zip_members(data)
     suffix = f".{origem.formato}"
@@ -232,6 +270,7 @@ def _parse_file(
     rows, rejected = [], []
     for member in chosen:
         res = read_file(members[member], origem, schema)
+        _check_reserved(res.rows.columns, f"o membro '{member}' do zip")
         rows.append(_with_source(res.rows, f"{uri}!{member}"))
         rejected.append(_with_source(res.rejected, f"{uri}!{member}"))
     return _concat(rows), _concat(rejected)
@@ -253,6 +292,7 @@ def _api_frame(records: list[dict[str, Any]], schema: SchemaSpec | None, uri: st
         columns.extend(k for k in rec if k not in columns)
     if not records and schema is not None:
         columns = [c.nome for c in schema.colunas]
+    _check_reserved(columns, "a resposta da API")
     if records and schema is not None:
         faltando = [c.nome for c in schema.colunas if c.obrigatoria and c.nome not in columns]
         if faltando:
@@ -371,7 +411,7 @@ def _ingest(step: IngestaoStep, ctx: StepContext, prog: _Progress) -> StepResult
         raise ConfigError(f"a origem '{origem.tipo}' ainda não é suportada pela etapa ingestao", operation="ingestao")
     table, quarantine_table = _table_names(destino)
     load_args = _load_args(destino)
-    day = ingestion_date_for(ctx.run_id)
+    day = ingestion_date_of(ctx)
     loaded_at = pd.Timestamp.now(tz="UTC").floor("us")
     params = {**ctx.params, "ingestion_date": day.isoformat()}
     dest_schema = load_schema(ctx.project_root / destino.schema)
@@ -427,7 +467,12 @@ def _ingest(step: IngestaoStep, ctx: StepContext, prog: _Progress) -> StepResult
         raise_if_blocking(prog.quality)
 
     prog.phase = "dml_pos_carga"
-    _run_sql_files(ctx, destino.dml_pos_carga, params, ddl=False)
+    notes: list[str] = []
+    if destino.dml_pos_carga and prog.written == 0 and not ctx.warehouse.table_exists(table):
+        notes.append(f"dml_pos_carga não executado: nada foi carregado e a tabela {table} ainda não existe")
+        log.warning(f"etapa '{step.id}': {notes[-1]}")
+    else:
+        _run_sql_files(ctx, destino.dml_pos_carga, params, ddl=False)
 
     if prog.read == 0:
         detail = f"entrada vazia (0 linhas): nada foi carregado em {table}"
@@ -435,6 +480,7 @@ def _ingest(step: IngestaoStep, ctx: StepContext, prog: _Progress) -> StepResult
         detail = f"{prog.written} linha(s) gravada(s) em {table}; {prog.rejected} na quarentena {quarantine_table}"
         if tr.duplicates_removed:
             detail += f"; {tr.duplicates_removed} duplicada(s) removida(s)"
+    detail = "; ".join([detail, *notes])
     return StepResult(
         step.id,
         "ok",
@@ -450,13 +496,14 @@ def run_ingestao(step: Step, ctx: StepContext) -> StepResult:
     """Runner da etapa `ingestao`. Falhas viram `status="falha"` com a fase e a contagem até ali."""
     if not isinstance(step, IngestaoStep):
         raise ConfigError(f"a etapa '{step.id}' não é do tipo ingestao", operation="ingestao")
-    secrets = _secrets(step.origem)
+    secrets = step_secrets(step)
     prog = _Progress()
     try:
         return _ingest(step, ctx, prog)
     except DataEngError as exc:
         detail = f"falha na fase '{prog.phase}': {exc}"
     except Exception as exc:  # nunca deixar exceção crua; a mensagem dela pode conter valores dos dados
+        log_unexpected(step.id, exc, secrets, where=f" na fase '{prog.phase}'")
         detail = f"falha na fase '{prog.phase}': erro inesperado ({type(exc).__name__}); veja o log"
     detail = redact(detail, secrets)
     return StepResult(

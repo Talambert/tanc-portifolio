@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -20,6 +21,7 @@ StepStatus = Literal["ok", "falha", "nao_executada"]
 
 # Vai para caminhos do bronze e para a tabela de controle: só caracteres seguros em GCS, disco e SQL.
 _RUN_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}")
+_RUN_ID_DATE = re.compile(r"(\d{4})(\d{2})(\d{2})")
 
 
 @dataclass
@@ -56,19 +58,54 @@ def validate_run_id(run_id: str) -> str:
     return run_id
 
 
+def resolve_ingestion_date(run_id: str, ingestion_date: dt.date | None) -> dt.date:
+    """`ingestion_date` explícita, senão a data no início do `run_id` (`AAAAMMDD...`, como `new_run_id`).
+
+    Sem nenhuma das duas é erro: cair na data de hoje faria a reexecução do mesmo run em outro dia
+    gravar outra partição (duplicando os dados).
+    """
+    if ingestion_date is not None:
+        if not isinstance(ingestion_date, dt.date) or isinstance(ingestion_date, dt.datetime):
+            raise ConfigError("ingestion_date deve ser uma data (datetime.date).", operation="build_context")
+        return ingestion_date
+    m = _RUN_ID_DATE.match(run_id)
+    if m:
+        try:
+            return dt.date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+        except ValueError:
+            pass
+    raise ConfigError(
+        f"o run_id '{run_id}' não contém data (AAAAMMDD...). Use new_run_id() ou informe ingestion_date "
+        "explicitamente.",
+        operation="build_context",
+    )
+
+
 def build_context(
-    pipeline: Pipeline, env: Environment, *, project_root: Path, run_id: str | None = None
+    pipeline: Pipeline,
+    env: Environment,
+    *,
+    project_root: Path,
+    run_id: str | None = None,
+    ingestion_date: dt.date | None = None,
 ) -> StepContext:
     """Monta o contexto: storage e warehouse do ambiente, `run_id` novo (ou o informado) e parâmetros.
 
     No modo local, `pasta_local` relativa é resolvida a partir da raiz do projeto (não do diretório atual).
-    Os parâmetros são os do pipeline (já com os do ambiente) mais `run_id`.
+    Os parâmetros são os do pipeline (já com os do ambiente) mais `run_id` e `ingestion_date` (AAAA-MM-DD,
+    a partição `_ingestion_date` e a pasta do bronze; ver `resolve_ingestion_date`).
+
+    Para T13/T16 (jobs e DAGs): passe um `run_id` ESTÁVEL entre tentativas e que contenha a data
+    (formato de `new_run_id`, `AAAAMMDDTHHMMSS-xxxxxx`), ou informe `ingestion_date`. O run_id nativo do
+    Airflow (ex.: `scheduled__2026-01-01T06:00:00+00:00`) é recusado por `validate_run_id`; a DAG deve
+    mapeá-lo para esse formato (ou passar `ingestion_date` explícita).
     """
     root = Path(project_root).resolve()
     rid = validate_run_id(run_id) if run_id is not None else new_run_id()
+    day = resolve_ingestion_date(rid, ingestion_date)
     if env.modo == "local" and not Path(env.pasta_local).is_absolute():
         env = env.model_copy(update={"pasta_local": str(root / env.pasta_local)})
-    params = {**env.params(), **pipeline.parametros, "run_id": rid}
+    params = {**env.params(), **pipeline.parametros, "run_id": rid, "ingestion_date": day.isoformat()}
     return StepContext(
         pipeline=pipeline,
         env=env,

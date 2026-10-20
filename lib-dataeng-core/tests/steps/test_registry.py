@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -188,3 +189,48 @@ def test_build_context(project: Path) -> None:
     for bad in ["", "../x", "a/b", "run id", "a:b", "x" * 129]:
         with pytest.raises(ConfigError):
             build_context(pipe, env, project_root=project, run_id=bad)
+
+
+# ------------------------------------------------------- revisão 1: redação no executor
+
+REG_SECRET = "S3GR3D0-registro"
+
+
+def _api_step_with_secret(monkeypatch: pytest.MonkeyPatch, secret: str = REG_SECRET) -> Any:
+    monkeypatch.setenv("API_TOKEN_REG", secret)
+    auth = {"tipo": "basic", "segredo_env": "API_TOKEN_REG"}
+    return pipeline(ingest_step("api", origem={"tipo": "api", "endpoint": "https://x.test/a", "autenticacao": auth}))
+
+
+def test_run_step_redacts_secret_in_dataeng_error_from_any_runner(
+    make_ctx: MakeCtx, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    secret = "usuario:" + REG_SECRET
+    encoded = base64.b64encode(secret.encode()).decode()
+
+    def runner(step: Step, ctx: StepContext) -> StepResult:
+        raise SourceError(f"vazou {secret} e {encoded}", operation="teste")
+
+    register_step_type("ingestao", runner)
+    pipe = _api_step_with_secret(monkeypatch, secret)
+    ctx = make_ctx(pipe)
+    result = run_step(pipe.get("api"), ctx)
+    assert result.status == "falha" and "vazou ***" in result.detail
+    stored = str(rows(ctx, f"SELECT detalhe FROM {CONTROL}"))
+    for text in (result.detail, stored):
+        assert REG_SECRET not in text and encoded not in text
+
+
+def test_run_step_logs_redacted_traceback_for_unexpected_error(
+    make_ctx: MakeCtx, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def failing_runner(step: Step, ctx: StepContext) -> StepResult:
+        raise KeyError(f"chave {REG_SECRET}")
+
+    register_step_type("ingestao", failing_runner)
+    pipe = _api_step_with_secret(monkeypatch)
+    result = run_step(pipe.get("api"), make_ctx(pipe))
+    err = capsys.readouterr().err
+    assert result.status == "falha" and "KeyError" in result.detail
+    assert "Traceback" in err and "in failing_runner" in err and "KeyError" in err
+    assert REG_SECRET not in err and REG_SECRET not in result.detail

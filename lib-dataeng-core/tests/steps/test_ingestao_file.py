@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
+import requests
 import responses
 from tests.steps.conftest import MakeCtx
 from tests.steps.helpers import (
@@ -21,6 +22,7 @@ from tests.steps.helpers import (
     TABLE,
     FlakyWarehouse,
     control_rows,
+    environment,
     ingest_step,
     list_bronze,
     names,
@@ -30,7 +32,9 @@ from tests.steps.helpers import (
     write_source,
 )
 
-from dataeng_core.steps import run_step
+import dataeng_core.steps.ingestao as ingestao
+from dataeng_core.base.errors import ConfigError
+from dataeng_core.steps import build_context, run_step
 
 DAY1 = dt.date(2026, 1, 1)
 BRONZE_DIR1 = f"{BRONZE}/ingestion_date=2026-01-01/run_id={RID1}"
@@ -441,3 +445,209 @@ def test_api_without_records_succeeds_with_zero_rows(project: Path, make_ctx: Ma
     result = run_step(pipe.get("ingere_api"), ctx)
     assert result.status == "ok" and result.rows_read == 0
     assert control_rows(ctx) == [(RID1, "ingere_api", "ok", 0, 0, 0)]
+
+
+# ------------------------------------------------- revisão 1: dml_pos_carga sem tabela
+
+RESUMO_SQL = "CREATE OR REPLACE TABLE silver.resumo AS SELECT count(*) AS n FROM silver.vendas"
+
+
+def _with_resumo(project: Path) -> dict[str, object]:
+    (project / "sql").mkdir(exist_ok=True)
+    (project / "sql" / "pos.sql").write_text(RESUMO_SQL, encoding="utf-8")
+    return ingest_step(dml_pos_carga=["sql/pos.sql"])
+
+
+@pytest.mark.parametrize(
+    "content",
+    ["id;produto;valor\n", "id;produto;valor\n;sem_id;1,00\n3;diesel;abc\n"],
+    ids=["vazio", "tudo_rejeitado"],
+)
+def test_first_run_without_rows_skips_post_load_dml(project: Path, make_ctx: MakeCtx, content: str) -> None:
+    write_source(project, content)
+    pipe = pipeline(_with_resumo(project))
+    ctx = make_ctx(pipe)
+
+    result = run_step(pipe.get("ingere"), ctx)
+
+    assert result.status == "ok", result.detail
+    assert result.rows_written == 0
+    assert "dml_pos_carga não executado" in result.detail and TABLE in result.detail
+    assert ctx.warehouse.table_exists(TABLE) is False
+    assert ctx.warehouse.table_exists("silver.resumo") is False
+    assert control_rows(ctx)[-1][2] == "ok"
+
+
+def test_empty_run_with_existing_table_runs_post_load_dml(project: Path, make_ctx: MakeCtx) -> None:
+    pipe = pipeline(_with_resumo(project))
+    ctx = make_ctx(pipe)
+    step = pipe.get("ingere")
+    assert run_step(step, ctx).status == "ok"
+    ctx.warehouse.run_sql(["DROP TABLE silver.resumo"])
+
+    write_source(project, "id;produto;valor\n")
+    result = run_step(step, with_run(ctx, RID2))
+
+    assert result.status == "ok", result.detail
+    assert "dml_pos_carga não executado" not in result.detail
+    assert rows(ctx, "SELECT n FROM silver.resumo") == [(2,)]
+
+
+# ------------------------------------------- revisão 1: ingestion_date explícita / run_id sem data
+
+
+def test_run_id_without_date_requires_explicit_ingestion_date(project: Path) -> None:
+    pipe = pipeline(ingest_step())
+    with pytest.raises(ConfigError, match="não contém data"):
+        build_context(pipe, environment(), project_root=project, run_id="manual-run")
+
+
+def test_explicit_ingestion_date_makes_rerun_on_another_day_idempotent(project: Path) -> None:
+    pipe = pipeline(ingest_step())
+    ctx = build_context(
+        pipe, environment(), project_root=project, run_id="manual-run", ingestion_date=dt.date(2025, 12, 31)
+    )
+    try:
+        ctx.warehouse = FlakyWarehouse(ctx.warehouse, QUARANTINE, times=1)  # type: ignore[assignment]
+        step = pipe.get("ingere")
+        assert run_step(step, ctx).status == "falha"  # silver gravada, quarentena falhou
+        assert run_step(step, ctx).status == "ok"  # reexecução (em qualquer dia) com a mesma data explícita
+        assert rows(ctx, f"SELECT CAST(_ingestion_date AS VARCHAR), count(*) FROM {TABLE} GROUP BY 1") == [
+            ("2025-12-31", 2)
+        ]
+        assert names(list_bronze(ctx)) == ["_manifesto.json", "vendas.csv"]
+        assert list_bronze(ctx)[0].startswith(f"{BRONZE}/ingestion_date=2025-12-31/run_id=manual-run/")
+    finally:
+        ctx.warehouse.close()  # type: ignore[attr-defined]
+
+
+def test_explicit_ingestion_date_overrides_run_id_date(project: Path) -> None:
+    ctx = build_context(
+        pipeline(ingest_step()), environment(), project_root=project, run_id=RID1, ingestion_date=dt.date(2025, 5, 6)
+    )
+    try:
+        assert ctx.params["ingestion_date"] == "2025-05-06"
+        assert run_step(ctx.pipeline.get("ingere"), ctx).status == "ok"
+        assert rows(ctx, f"SELECT DISTINCT CAST(_ingestion_date AS VARCHAR) FROM {TABLE}") == [("2025-05-06",)]
+    finally:
+        ctx.warehouse.close()  # type: ignore[attr-defined]
+
+
+# ------------------------------------------------------------- revisão 1: origem http(s)
+
+
+@pytest.mark.parametrize("loc", ["file:///etc/passwd", "ftp://host/vendas.csv", "FILE://x/y.csv"])
+def test_unsupported_url_scheme_is_config_error(project: Path, make_ctx: MakeCtx, loc: str) -> None:
+    step_cfg = ingest_step()
+    step_cfg["origem"]["localizacao"] = loc
+    pipe = pipeline(step_cfg)
+    result = run_step(pipe.get("ingere"), make_ctx(pipe))
+    assert result.status == "falha"
+    assert "Configuração inválida" in result.detail and "esquema" in result.detail
+    assert "inexistente" not in result.detail
+
+
+@responses.activate
+def test_uppercase_https_scheme_is_accepted(project: Path, make_ctx: MakeCtx) -> None:
+    responses.add(responses.GET, "https://dados.example.test/vendas.csv", body=CSV.encode())
+    step_cfg = ingest_step()
+    step_cfg["origem"]["localizacao"] = "HTTPS://dados.example.test/vendas.csv"
+    pipe = pipeline(step_cfg)
+    assert run_step(pipe.get("ingere"), make_ctx(pipe)).status == "ok"
+
+
+@responses.activate
+def test_http_redirect_is_not_followed(project: Path, make_ctx: MakeCtx) -> None:
+    url = "https://dados.example.test/vendas.csv"
+    target = "http://169.254.169.254/computeMetadata/v1/"
+    responses.add(responses.GET, url, status=302, headers={"Location": target})
+    responses.add(responses.GET, target, body="segredo-da-metadata")
+    step_cfg = ingest_step()
+    step_cfg["origem"]["localizacao"] = url
+    pipe = pipeline(step_cfg)
+
+    result = run_step(pipe.get("ingere"), make_ctx(pipe))
+
+    assert result.status == "falha" and "redirecionamento (HTTP 302)" in result.detail
+    assert [c.request.url for c in responses.calls] == [url]
+
+
+@responses.activate
+def test_http_download_over_limit_fails(project: Path, make_ctx: MakeCtx, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ingestao, "MAX_DOWNLOAD_BYTES", 10)
+    url = "https://dados.example.test/vendas.csv"
+    responses.add(responses.GET, url, body=CSV.encode())
+    step_cfg = ingest_step()
+    step_cfg["origem"]["localizacao"] = url
+    pipe = pipeline(step_cfg)
+    ctx = make_ctx(pipe)
+    result = run_step(pipe.get("ingere"), ctx)
+    assert result.status == "falha" and "excede o limite de 10 bytes" in result.detail
+    assert list_bronze(ctx) == []
+
+
+def test_http_timeout_is_connect_and_read_tuple(
+    project: Path, make_ctx: MakeCtx, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: dict[str, object] = {}
+
+    def fake_get(url: str, **kwargs: object) -> object:
+        seen.update(kwargs)
+        raise requests.ConnectionError("sem rede")
+
+    monkeypatch.setattr(ingestao.requests, "get", fake_get)
+    step_cfg = ingest_step()
+    step_cfg["origem"]["localizacao"] = "https://dados.example.test/vendas.csv"
+    pipe = pipeline(step_cfg)
+    result = run_step(pipe.get("ingere"), make_ctx(pipe))
+    assert result.status == "falha" and "ConnectionError" in result.detail
+    timeout = seen["timeout"]
+    assert isinstance(timeout, tuple) and len(timeout) == 2
+    assert seen["allow_redirects"] is False and seen["stream"] is True
+
+
+# ------------------------------------------------- revisão 1: colunas reservadas e log
+
+
+@pytest.mark.parametrize(
+    "col", ["_run_id", "_source_file", "_loaded_at", "_ingestion_date", "_motivo", "_linha_original"]
+)
+def test_reserved_column_in_source_fails_with_its_name(project: Path, make_ctx: MakeCtx, col: str) -> None:
+    write_source(project, f"id;produto;valor;{col}\n1;gasolina;5,50;x\n")
+    pipe = pipeline(ingest_step())
+    ctx = make_ctx(pipe)
+    result = run_step(pipe.get("ingere"), ctx)
+    assert result.status == "falha"
+    assert f"coluna reservada '{col}'" in result.detail
+    assert ctx.warehouse.table_exists(TABLE) is False
+
+
+@responses.activate
+def test_reserved_column_in_api_response_fails(project: Path, make_ctx: MakeCtx) -> None:
+    responses.add(responses.GET, API_URL, json=[{"id": 1, "_run_id": "forjado"}])
+    pipe = pipeline(_api_step())
+    result = run_step(pipe.get("ingere_api"), make_ctx(pipe))
+    assert result.status == "falha" and "coluna reservada '_run_id'" in result.detail
+
+
+def test_unexpected_error_is_logged_with_redacted_traceback(
+    project: Path,
+    make_ctx: MakeCtx,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    secret = "S3GR3D0-log"
+    monkeypatch.setenv("API_TOKEN_LOG", secret)
+
+    def boom(*args: object, **kwargs: object) -> object:
+        raise RuntimeError(f"explodiu com {secret}")
+
+    monkeypatch.setattr(ingestao, "fetch_records", boom)
+    auth = {"tipo": "bearer", "segredo_env": "API_TOKEN_LOG"}
+    pipe = pipeline(ingest_step("ingere_api", origem={"tipo": "api", "endpoint": API_URL, "autenticacao": auth}))
+    result = run_step(pipe.get("ingere_api"), make_ctx(pipe))
+
+    err = capsys.readouterr().err
+    assert result.status == "falha" and "RuntimeError" in result.detail
+    assert "Traceback" in err and "RuntimeError" in err and "in boom" in err
+    assert secret not in err and secret not in result.detail

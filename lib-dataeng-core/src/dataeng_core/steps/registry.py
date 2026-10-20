@@ -7,12 +7,16 @@ executadas, e converte qualquer erro do runner em `StepResult(status="falha")` c
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+import base64
+import os
+import traceback
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import replace
+from typing import Any
 
 from dataeng_core.base.errors import ConfigError, DataEngError
 from dataeng_core.base.pipeline import Pipeline, Step
-from dataeng_core.base.runtime import get_logger, run_id_var
+from dataeng_core.base.runtime import get_logger, redact, run_id_var
 from dataeng_core.steps.context import StepContext, StepResult
 from dataeng_core.steps.control import record_result
 
@@ -21,6 +25,43 @@ log = get_logger(__name__)
 StepRunner = Callable[[Step, StepContext], StepResult]
 
 _RUNNERS: dict[str, StepRunner] = {}
+
+
+def _env_names(value: Any) -> Iterator[str]:
+    """Valores de todo campo `segredo_env` (em qualquer nível) da configuração da etapa."""
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if key == "segredo_env" and isinstance(item, str) and item:
+                yield item
+            else:
+                yield from _env_names(item)
+    elif isinstance(value, list | tuple):
+        for item in value:
+            yield from _env_names(item)
+
+
+def step_secrets(step: Any) -> list[str]:
+    """Segredos da etapa (o valor de cada `segredo_env`, sua forma base64 e a senha do `usuario:senha`).
+
+    Tudo que vai para log, erro ou controle passa por `redact` com esta lista.
+    """
+    dump = getattr(step, "model_dump", None)
+    config = dump() if callable(dump) else {}
+    out: list[str] = []
+    for name in _env_names(config):
+        secret = os.environ.get(name, "")
+        if not secret:
+            continue
+        out += [secret, base64.b64encode(secret.encode("utf-8")).decode("ascii")]
+        if ":" in secret:
+            out.append(secret.split(":", 1)[1])
+    return out
+
+
+def log_unexpected(step_id: str, exc: BaseException, secrets: Sequence[str], where: str = "") -> None:
+    """Registra tipo e traceback de uma exceção inesperada, com os segredos redigidos (nunca `exc_info` cru)."""
+    trace = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+    log.error(redact(f"etapa '{step_id}': erro inesperado{where} ({type(exc).__name__})\n{trace}", secrets))
 
 
 def register_step_type(tipo: str, runner: StepRunner) -> None:
@@ -74,10 +115,11 @@ def run_step(step: Step, ctx: StepContext) -> StepResult:
     """Executa uma etapa, grava o resultado no controle e o devolve.
 
     Tipo sem executor levanta `ConfigError` (nada é executado nem gravado). Erros do runner viram
-    `status="falha"`: `DataEngError` com sua mensagem; outras exceções só com o tipo (a mensagem
-    delas pode conter valores dos dados).
+    `status="falha"`: `DataEngError` com sua mensagem (segredos redigidos); outras exceções só com o tipo
+    no resultado (a mensagem delas pode conter valores dos dados) e o traceback redigido no log.
     """
     runner = _runner_for(step)
+    secrets = step_secrets(step)
     token = run_id_var.set(ctx.run_id)
     try:
         try:
@@ -87,8 +129,9 @@ def run_step(step: Step, ctx: StepContext) -> StepResult:
                     step.id, "falha", detail=f"o executor do tipo '{step.tipo}' não devolveu um StepResult"
                 )
         except DataEngError as exc:
-            result = StepResult(step.id, "falha", detail=str(exc))
+            result = StepResult(step.id, "falha", detail=redact(str(exc), secrets))
         except Exception as exc:
+            log_unexpected(step.id, exc, secrets)
             result = StepResult(
                 step.id,
                 "falha",

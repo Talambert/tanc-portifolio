@@ -12,7 +12,7 @@ import pandas as pd
 from dataeng_core.base.errors import LoadError
 from dataeng_core.base.params import Environment
 from dataeng_core.base.pipeline import Pipeline
-from dataeng_core.steps.context import StepContext
+from dataeng_core.steps.context import StepContext, resolve_ingestion_date
 
 RID1 = "20260101T060000-aaaaaa"
 RID2 = "20260101T120000-bbbbbb"  # mesmo dia de RID1
@@ -105,7 +105,8 @@ def environment() -> Environment:
 
 def with_run(ctx: StepContext, run_id: str) -> StepContext:
     """O mesmo contexto (mesmo storage e warehouse) com outro `run_id`."""
-    return dataclasses.replace(ctx, run_id=run_id, params={**ctx.params, "run_id": run_id})
+    day = resolve_ingestion_date(run_id, None).isoformat()
+    return dataclasses.replace(ctx, run_id=run_id, params={**ctx.params, "run_id": run_id, "ingestion_date": day})
 
 
 def rows(ctx: StepContext, sql: str) -> list[tuple[Any, ...]]:
