@@ -334,3 +334,70 @@ def test_query_string_of_endpoint_not_in_messages(sleeps: Sleeps) -> None:
         _fetch(_origem(endpoint=f"{URL}?key=abc123"), sleeps)
     assert "abc123" not in str(info.value)
     assert "api.example.test/items" in str(info.value)
+
+
+@responses.activate
+def test_no_secret_prefix_leaks_when_body_truncation_cuts_the_token(
+    caplog: pytest.LogCaptureFixture, sleeps: Sleeps
+) -> None:
+    secret = "tok_ABCDEFGHIJKLMNOP"
+    logger = logging.getLogger("dataeng_core.sources.api")
+    logger.addHandler(caplog.handler)
+    caplog.set_level(logging.DEBUG)
+    try:
+        for status in (401, 503):
+            responses.reset()
+            responses.add(responses.GET, URL, status=status, body="x" * 190 + secret)
+            origem = _origem(autenticacao={"tipo": "bearer", "segredo_env": "T"})
+            with pytest.raises(SourceError) as info:
+                _fetch(origem, sleeps, env={"T": secret})
+            texts = [str(info.value), repr(info.value), caplog.text]
+            for n in range(4, len(secret) + 1):
+                assert all(secret[:n] not in t for t in texts)
+    finally:
+        logger.removeHandler(caplog.handler)
+    assert "xxxx" in str(info.value)
+
+
+@responses.activate
+def test_redirect_is_not_followed(sleeps: Sleeps) -> None:
+    other = "https://other.example.test/steal"
+    responses.add(responses.GET, URL, status=302, headers={"Location": other})
+    responses.add(responses.GET, other, json=[{"id": 1}])
+    origem = _origem(autenticacao={"tipo": "bearer", "segredo_env": "T"})
+    with pytest.raises(SourceError, match="redirecionamento"):
+        _fetch(origem, sleeps, env={"T": SECRET})
+    assert len(responses.calls) == 1
+    assert sleeps.calls == []
+
+
+@responses.activate
+@pytest.mark.parametrize(
+    "exc", [requests.exceptions.ChunkedEncodingError("x"), requests.exceptions.ContentDecodingError("x")]
+)
+def test_chunked_and_decoding_errors_are_retried(exc: Exception, sleeps: Sleeps) -> None:
+    responses.add(responses.GET, URL, body=exc)
+    responses.add(responses.GET, URL, json=[{"id": 1}])
+    assert _fetch(_origem(), sleeps) == [{"id": 1}]
+    assert len(responses.calls) == 2
+
+
+def test_internal_session_is_closed(monkeypatch: pytest.MonkeyPatch, sleeps: Sleeps) -> None:
+    closed: list[bool] = []
+    real_close = requests.Session.close
+
+    def spy(self: requests.Session) -> None:
+        closed.append(True)
+        real_close(self)
+
+    monkeypatch.setattr(requests.Session, "close", spy)
+    with responses.RequestsMock() as rsps:
+        rsps.add(responses.GET, URL, json=[])
+        _fetch(_origem(), sleeps)
+    assert closed == [True]
+    # sessão fornecida pelo chamador não é fechada
+    closed.clear()
+    with responses.RequestsMock() as rsps, requests.Session() as mine:
+        rsps.add(responses.GET, URL, json=[])
+        fetch_records(_origem(), session=mine, env={}, sleep=sleeps)
+        assert closed == []

@@ -112,10 +112,25 @@ def fetch_records(
     env: Mapping[str, str] | None = None,
     sleep: Callable[[float], None] = time.sleep,
 ) -> list[dict[str, Any]]:
-    """Lê todos os registros da API, seguindo a paginação configurada."""
+    """Lê todos os registros da API, seguindo a paginação configurada.
+
+    O modo cursor não envia parâmetro de tamanho. Corpo vazio com HTTP 200 é erro; só o 204 encerra.
+    Redirecionamentos não são seguidos (erro acionável). A sessão criada aqui é fechada ao final.
+    """
     env = os.environ if env is None else env
+    if session is not None:
+        return _fetch_all(origem, session, env, sleep)
+    with requests.Session() as own:
+        return _fetch_all(origem, own, env, sleep)
+
+
+def _fetch_all(
+    origem: ApiOrigem,
+    http: requests.Session,
+    env: Mapping[str, str],
+    sleep: Callable[[float], None],
+) -> list[dict[str, Any]]:
     headers, sensitive = _resolve_auth(origem, env)
-    http = session or requests.Session()
     safe = _safe_url(origem.endpoint)
     pag = origem.paginacao
     min_interval = 1.0 / origem.limite_taxa if origem.limite_taxa else 0.0
@@ -145,8 +160,15 @@ def fetch_records(
         transient = False
         response: requests.Response | None = None
         try:
-            response = http.get(origem.endpoint, params=params or None, headers=headers, timeout=TIMEOUT_S)
-        except (requests.ConnectionError, requests.Timeout) as exc:
+            response = http.get(
+                origem.endpoint, params=params or None, headers=headers, timeout=TIMEOUT_S, allow_redirects=False
+            )
+        except (
+            requests.ConnectionError,
+            requests.Timeout,
+            requests.exceptions.ChunkedEncodingError,
+            requests.exceptions.ContentDecodingError,
+        ) as exc:
             problem, transient = f"erro de rede ({type(exc).__name__}) ao acessar {safe}", True
         except requests.RequestException as exc:
             problem = f"requisição inválida ({type(exc).__name__}) para {safe}"
@@ -158,7 +180,9 @@ def fetch_records(
             raise fail(problem)
 
         status = response.status_code
-        snippet = clean(response.text[:_BODY_SNIPPET]) if status >= 400 else ""
+        snippet = clean(response.text)[:_BODY_SNIPPET] if status >= 400 else ""
+        if 300 <= status < 400:
+            raise fail(f"a API respondeu com redirecionamento (HTTP {status}) em {safe}; ajuste a URL do endpoint")
         if status == 429 or status >= 500:
             message = f"HTTP {status} em {safe}" + (f": {snippet}" if snippet else "")
             log.warning(clean(message))
