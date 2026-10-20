@@ -57,7 +57,10 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
-markers = ["gcp: contrato contra GCP real; pulado sem GOOGLE_APPLICATION_CREDENTIALS e DATAENG_GCP_PROJECT"]
+markers = [
+    "gcp: contrato contra GCP real; pulado sem GOOGLE_APPLICATION_CREDENTIALS e DATAENG_GCP_PROJECT",
+    "airflow: importa a DAG com o Airflow real; pulado se o Airflow não estiver instalado (roda no CI, em Linux)",
+]
 
 [tool.ruff]
 line-length = 120
@@ -72,7 +75,7 @@ mypy_path = "src"
 packages = ["dataeng_core"]
 
 [[tool.mypy.overrides]]
-module = ["google", "google.*"]
+module = ["google", "google.*", "airflow", "airflow.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
