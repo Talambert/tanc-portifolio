@@ -108,8 +108,8 @@ def test_view_step_creates_and_replaces(project: Path, make_ctx: MakeCtx) -> Non
     ("text", "kw", "expected"),
     [
         ("SELECT 1 AS n;\n", {}, "informe `nome_view`"),
-        ("SELECT 1 AS n;\n", {"nome_view": "gold.v-ruim"}, "nome de tabela inválido: 'v-ruim'"),
-        ("SELECT 1 AS n;\n", {"nome_view": "a.b.c"}, "nome de tabela inválido: 'a.b.c'"),
+        ("SELECT 1 AS n;\n", {"nome_view": "gold.v-ruim"}, "nome de view inválido: 'gold.v-ruim'"),
+        ("SELECT 1 AS n;\n", {"nome_view": "a.b.c"}, "nome de view inválido: 'a.b.c'"),
         ("SELECT 1 AS n; SELECT 2 AS n;\n", {"nome_view": "gold.v"}, "tem 2 instruções"),
         ("-- só comentário\n", {"nome_view": "gold.v"}, "sql/v.sql não contém instruções"),
         ("CREATE TABLE gold.t (n INTEGER);\n", {"nome_view": "gold.v"}, "não é CREATE OR REPLACE VIEW nem SELECT"),
@@ -193,7 +193,7 @@ def test_failing_statement_stops_and_reports_position(project: Path, make_ctx: M
     assert _control(ctx) == [("s", "falha")]
 
 
-def test_failure_message_is_redacted_and_truncated(
+def test_warehouse_message_never_reaches_detail(
     project: Path, make_ctx: MakeCtx, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     f = _write(project, "a.sql", "SELECT 1;\n")
@@ -203,14 +203,90 @@ def test_failure_message_is_redacted_and_truncated(
     monkeypatch.setenv("TOKEN_X", secret)
     step = pipe.get("s")
     monkeypatch.setattr(type(step), "model_dump", lambda self, **_: {"x": {"segredo_env": "TOKEN_X"}})
+    raised: list[SqlError] = []
 
     def boom(_statements: Any) -> None:
-        raise SqlError(f"falha com {secret} " + "z" * 1000, operation="warehouse.run_sql")
+        raised.append(SqlError(f"mensagem do warehouse com {secret} e valor-de-dado", operation="warehouse.run_sql"))
+        raise raised[0]
 
     monkeypatch.setattr(ctx.warehouse, "run_sql", boom)
     result = run_step(step, ctx)
-    assert result.status == "falha" and secret not in result.detail and "***" in result.detail
-    assert len(result.detail) < 800
+    assert result.status == "falha"
+    assert (
+        secret not in result.detail
+        and "valor-de-dado" not in result.detail
+        and "mensagem do warehouse" not in result.detail
+    )
+    assert f"(SqlError, referência {raised[0].reference})" in result.detail
+    assert "arquivo sql/a.sql: instrução 1 de 1 (linha 1) falhou" in result.detail
+
+
+SENTINEL = "dado-sensivel-777"
+
+
+def test_data_value_in_warehouse_error_does_not_leak(
+    project: Path, make_ctx: MakeCtx, caplog: pytest.LogCaptureFixture, capfd: pytest.CaptureFixture[str]
+) -> None:
+    f = _write(
+        project,
+        "a.sql",
+        f"CREATE TABLE gold.p AS SELECT '{SENTINEL}' AS v;\nSELECT CAST(v AS INT) FROM gold.p;\n",
+    )
+    pipe = pipeline(_sql("s", f))
+    ctx = make_ctx(pipe)
+    result = run_step(pipe.get("s"), ctx)
+    assert result.status == "falha"
+    assert "instrução 2 de 2 (linha 2) falhou (SqlError, referência " in result.detail
+    assert "1 de 2 instruções já executadas" in result.detail
+    everything = result.detail + caplog.text + capfd.readouterr().err + repr(rows(ctx, f"SELECT * FROM {CONTROL}"))
+    assert SENTINEL not in everything
+
+
+def test_duckdb_syntax_error_does_not_leak_sql_text(project: Path, make_ctx: MakeCtx) -> None:
+    # válido como BigQuery (passa na validação), inválido no DuckDB: o erro vem do warehouse
+    f = _write(
+        project,
+        "a.sql",
+        "SELECT 'texto-sentinela-abc' AS v FROM (SELECT 1) AS t WHERE FUNCAO_INEXISTENTE_XYZ(1) = 1;\n",
+    )
+    pipe = pipeline(_sql("s", f))
+    ctx = make_ctx(pipe)
+    result = run_step(pipe.get("s"), ctx)
+    assert result.status == "falha"
+    assert "falhou (SqlError, referência " in result.detail
+    assert "texto-sentinela-abc" not in result.detail and "funcao_inexistente_xyz" not in result.detail.lower()
+    assert "texto-sentinela-abc" not in repr(rows(ctx, f"SELECT * FROM {CONTROL}"))
+
+
+def test_sql_file_with_utf8_bom_is_read(project: Path, make_ctx: MakeCtx) -> None:
+    path = project / "sql" / "bom.sql"
+    path.parent.mkdir(exist_ok=True)
+    path.write_bytes(b"\xef\xbb\xbf" + "CREATE TABLE gold.bom AS SELECT 'ação' AS v;\n".encode())
+    pipe = pipeline(_sql("s", "sql/bom.sql"))
+    ctx = make_ctx(pipe)
+    assert run_step(pipe.get("s"), ctx).status == "ok"
+    assert rows(ctx, "SELECT v FROM gold.bom") == [("ação",)]
+
+
+@pytest.mark.parametrize("nome", ["gold.v_certa", "GOLD.V_CERTA", None])
+def test_view_name_matching_file_is_accepted(project: Path, make_ctx: MakeCtx, nome: str | None) -> None:
+    f = _write(project, "v.sql", "CREATE OR REPLACE VIEW gold.v_certa AS SELECT 1 AS n;\n")
+    kw = {"nome_view": nome} if nome else {}
+    pipe = pipeline(_view("v", f, **kw))
+    ctx = make_ctx(pipe)
+    result = run_step(pipe.get("v"), ctx)
+    assert result.status == "ok", result.detail
+    assert rows(ctx, "SELECT n FROM gold.v_certa") == [(1,)]
+
+
+def test_view_name_diverging_from_file_is_config_error(project: Path, make_ctx: MakeCtx) -> None:
+    f = _write(project, "v.sql", "CREATE OR REPLACE VIEW gold.v_arquivo AS SELECT 1 AS n;\n")
+    pipe = pipeline(_view("v", f, nome_view="gold.v_outra"))
+    ctx = make_ctx(pipe)
+    result = run_step(pipe.get("v"), ctx)
+    assert result.status == "falha"
+    assert "cria a view 'gold.v_arquivo', mas `nome_view` é 'gold.v_outra'" in result.detail
+    assert not ctx.warehouse.table_exists("gold.v_arquivo")
 
 
 def test_idempotency_warning_goes_to_detail_without_failing(project: Path, make_ctx: MakeCtx) -> None:

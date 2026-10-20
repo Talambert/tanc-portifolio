@@ -446,3 +446,86 @@ def test_json_schema_is_generated_from_model() -> None:
     etapas = schema["properties"]["etapas"]["items"]
     assert etapas["discriminator"]["propertyName"] == "tipo"
     assert set(etapas["discriminator"]["mapping"]) == {"ingestao", "sql", "view", "python", "spark", "qualidade"}
+
+
+# ---- caminhos devem ficar dentro da raiz do projeto ---------------------------------------------------------------
+
+
+def _ingest_yaml(location: str) -> str:
+    return sql_steps(
+        f"""
+        id: ing
+        tipo: ingestao
+        origem: {{tipo: arquivo, localizacao: "{location}", schema: schemas/o.yaml}}
+        destino: {{bronze: "gs://b/bronze/x/", tabela: silver.x, schema: schemas/d.yaml, modo_carga: append}}
+        """
+    )
+
+
+@pytest.mark.parametrize(
+    ("campo", "path"),
+    [
+        ("sql", "../fora.sql"),
+        ("sql", "sql/../../fora.sql"),
+        ("sql", "C:/Windows/win.ini"),
+        ("sql", "/etc/passwd"),
+    ],
+)
+def test_sql_path_outside_project_root_is_rejected(tmp_path: Path, campo: str, path: str) -> None:
+    root = tmp_path / "proj"
+    root.mkdir()
+    (tmp_path / "fora.sql").write_text("SEGREDO-NO-ARQUIVO\n", encoding="utf-8")
+    config = make_project(root, sql_steps(f'id: a\ntipo: sql\nsql: ["{path}"]'), [])
+    with pytest.raises(ConfigError) as exc:
+        load_pipeline(config)
+    msg = str(exc.value)
+    assert "fora da raiz do projeto" in msg and "etapa 'a' campo sql" in msg and path in msg
+    assert "SEGREDO-NO-ARQUIVO" not in msg
+
+
+def test_view_ddl_schema_and_local_source_outside_root_are_rejected(tmp_path: Path) -> None:
+    root = tmp_path / "proj"
+    root.mkdir()
+    config = make_project(root, _ingest_yaml("../dados.csv"), ["schemas/o.yaml", "schemas/d.yaml"])
+    with pytest.raises(ConfigError, match=r"etapa 'ing' campo origem\.localizacao: \.\./dados\.csv"):
+        load_pipeline(config)
+    (root / "config" / "pipeline.yaml").write_text(sql_steps('id: v\ntipo: view\nsql: "../v.sql"'), encoding="utf-8")
+    with pytest.raises(ConfigError, match=r"etapa 'v' campo sql: \.\./v\.sql"):
+        load_pipeline(config)
+    (root / "config" / "pipeline.yaml").write_text(
+        _ingest_yaml("data/a.csv").replace("schemas/d.yaml", "../d.yaml"), encoding="utf-8"
+    )
+    with pytest.raises(ConfigError, match=r"campo destino\.schema: \.\./d\.yaml"):
+        load_pipeline(config)
+
+
+def test_uri_sources_and_nested_paths_inside_root_are_accepted(tmp_path: Path) -> None:
+    files = ["schemas/o.yaml", "schemas/d.yaml"]
+    for location in (
+        "gs://bucket/dir/a.csv",
+        "https://exemplo.test/a.csv",
+        "data/sub/amostra.csv",
+        "data/../data/a.csv",
+    ):
+        root = tmp_path / str(abs(hash(location)))
+        root.mkdir()
+        config = make_project(root, _ingest_yaml(location), files)
+        assert load_pipeline(config).get("ing").tipo == "ingestao"
+    config = make_project(tmp_path / "n", sql_steps("id: a\ntipo: sql\nsql: [sql/a/b/c.sql]"), ["sql/a/b/c.sql"])
+    assert load_pipeline(config).get("a").tipo == "sql"
+
+
+def test_symlink_pointing_outside_root_is_rejected(tmp_path: Path) -> None:
+    root = tmp_path / "proj"
+    root.mkdir()
+    outside = tmp_path / "fora.sql"
+    outside.write_text("SEGREDO-NO-ARQUIVO\n", encoding="utf-8")
+    config = make_project(root, sql_steps("id: a\ntipo: sql\nsql: [sql/link.sql]"), [])
+    (root / "sql").mkdir()
+    try:
+        (root / "sql" / "link.sql").symlink_to(outside)
+    except (OSError, NotImplementedError):
+        pytest.skip("o sistema não permite criar symlink (Windows sem privilégio)")
+    with pytest.raises(ConfigError) as exc:
+        load_pipeline(config)
+    assert "etapa 'a' campo sql: sql/link.sql" in str(exc.value) and "SEGREDO-NO-ARQUIVO" not in str(exc.value)

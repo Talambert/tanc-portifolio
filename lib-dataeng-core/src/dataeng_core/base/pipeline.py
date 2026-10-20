@@ -7,6 +7,7 @@ from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Annotated, Any, ClassVar, Literal, Self, TypeAlias, get_args
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, ValidationError, model_validator
 
@@ -498,6 +499,38 @@ def _referenced_files(step: Step) -> list[tuple[str, Path]]:
     return files
 
 
+def _local_path_text(location: str) -> str | None:
+    """`origem.localizacao` quando é caminho local (não `gs://`, `http(s)://` nem outro esquema); senão None."""
+    scheme = urlsplit(location).scheme.lower()
+    return location if len(scheme) <= 1 else None  # esquema de uma letra é a unidade do Windows (ex.: C:)
+
+
+def _check_inside_root(pipeline: Pipeline, root: Path, config_path: Path) -> None:
+    """Todo arquivo referenciado pelo YAML deve ficar DENTRO da raiz do projeto, depois de resolvido.
+
+    Caminho absoluto fora da raiz, `..` que escape ou symlink para fora são recusados sem ler o arquivo.
+    Vale para sql, schemas, ddl/dml, scripts e `origem.localizacao` local (URIs não se aplicam).
+    """
+    base = root.resolve()
+    outside: list[str] = []
+    for step in pipeline.etapas:
+        entries = [(campo, p.as_posix()) for campo, p in _referenced_files(step)]
+        origem = getattr(step, "origem", None)
+        if isinstance(origem, ArquivoOrigem) and _local_path_text(origem.localizacao) is not None:
+            entries.append(("origem.localizacao", origem.localizacao))
+        for campo, text in entries:
+            try:
+                (root / text).resolve().relative_to(base)
+            except (ValueError, OSError):
+                outside.append(f"etapa '{step.id}' campo {campo}: {text[:120]}")
+    if outside:
+        raise ConfigError(
+            f"arquivo {config_path}: caminhos fora da raiz do projeto ({root}): {'; '.join(outside)}; "
+            "use caminhos relativos dentro do projeto (sem '..', sem caminho absoluto e sem symlink para fora)",
+            operation="load_pipeline",
+        )
+
+
 def _merge_params(
     raw: Mapping[str, Any], env_params: Mapping[str, str], extra: Mapping[str, str], config_path: Path
 ) -> dict[str, str]:
@@ -553,6 +586,7 @@ def load_pipeline(
     except ValidationError as exc:
         raise ConfigError(f"arquivo {config_path}: {_describe(exc, data)}", operation="load_pipeline") from exc
 
+    _check_inside_root(pipeline, root, config_path)
     faltando = [
         f"etapa '{s.id}' campo {campo}: {p.as_posix()}"
         for s in pipeline.etapas

@@ -30,6 +30,7 @@ from dataeng_core.sql.render import render_sql
 from dataeng_core.sql.validate import validate_sql
 from dataeng_core.steps.context import resolve_ingestion_date, validate_run_id
 from dataeng_core.steps.registry import step_secrets
+from dataeng_core.steps.sql_steps import check_view_name, inspect_view, prepare_script
 
 
 def _sql_files(step: Step) -> list[tuple[str, Path]]:
@@ -49,10 +50,19 @@ def _render_params(pipeline: Pipeline, env: Environment, run_id: str) -> dict[st
     return {**env.params(), **pipeline.parametros, "run_id": run_id, "ingestion_date": day}
 
 
-def _rendered(root: Path, rel: Path, params: dict[str, str]) -> tuple[str, list[str]]:
+def _rendered(root: Path, step: Step, rel: Path, params: dict[str, str]) -> tuple[str, list[str]]:
     """SQL renderizado e validado, com os avisos de idempotência (já citam arquivo e linha).
 
-    Parâmetro indefinido ou sintaxe inválida levanta `SqlError` com arquivo e linha. Nada é executado."""
+    Parâmetro indefinido ou sintaxe inválida levanta `SqlError` com arquivo e linha. Para etapas `sql` e `view`
+    valem as mesmas checagens da execução (arquivo sem instruções; view com mais de uma instrução ou de outro
+    tipo; `nome_view` inválido ou divergente). Nada é executado."""
+    if isinstance(step, SqlStep | ViewStep):
+        if isinstance(step, ViewStep):
+            check_view_name(step)
+        script = prepare_script(step.id, root, rel, params)
+        if isinstance(step, ViewStep):
+            inspect_view(step, script)
+        return script.sql, script.warnings
     source = rel.as_posix()
     try:
         text = (root / rel).read_text(encoding="utf-8")
@@ -77,7 +87,7 @@ def _cmd_validate(args: argparse.Namespace) -> int:
         for step in pipeline.ordered_steps():
             secrets.extend(step_secrets(step))
             for _role, rel in _sql_files(step):
-                for warning in _rendered(root, rel, params)[1]:
+                for warning in _rendered(root, step, rel, params)[1]:
                     print(f"aviso: {warning}")
         n = len(pipeline.etapas)
         print(f"Configuração válida: pipeline '{pipeline.nome}', {n} etapas, ambiente '{args.ambiente}'.")
@@ -97,7 +107,7 @@ def _cmd_plan(args: argparse.Namespace) -> int:
             lines = [f"{number}. {step.id}  tipo={step.tipo}  motor={step.motor or 'bigquery'}{deps}"]
             for role, rel in _sql_files(step):
                 lines.append(f"   SQL ({role}) {rel.as_posix()}:")
-                sql, warnings = _rendered(root, rel, params)
+                sql, warnings = _rendered(root, step, rel, params)
                 lines += [f"     {line}" for line in sql.rstrip().splitlines()]
                 lines += [f"   aviso: {warning}" for warning in warnings]
             blocks.append("\n".join(lines))

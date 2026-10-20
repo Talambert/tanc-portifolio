@@ -88,3 +88,29 @@ def test_run_local_sql_step_failure_exit_code_and_message(tmp_path: Path, capsys
     err = capsys.readouterr().err
     assert "[falha] resumo: arquivo sql/quebra.sql: instrução 1 de 1 (linha 1) falhou" in err
     assert "Traceback" not in err
+
+
+@pytest.mark.parametrize("command", ["plan", "validate-config"])
+def test_empty_sql_file_is_an_error_in_plan_and_validate(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], command: str
+) -> None:
+    config = make_project(tmp_path, sql="-- só comentário\n", with_sql_step=True)
+    assert main([command, "--config", str(config)]) == 1
+    err = capsys.readouterr().err
+    assert "etapa 'resumo': o arquivo sql/marca.sql não contém instruções" in err and "Traceback" not in err
+
+
+@pytest.mark.parametrize("command", ["plan", "validate-config"])
+def test_view_with_two_statements_is_an_error_in_plan_and_validate(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], command: str
+) -> None:
+    config = make_project(tmp_path, with_sql_step=True)
+    config.write_text(
+        config.read_text(encoding="utf-8")
+        .replace("tipo: sql", "tipo: view")
+        .replace("- sql/marca.sql\n  depende_de", "sql: sql/marca.sql\n  depende_de"),
+        encoding="utf-8",
+    )
+    (tmp_path / "sql" / "marca.sql").write_text("SELECT 1 AS n;\nSELECT 2 AS n;\n", encoding="utf-8")
+    assert main([command, "--config", str(config)]) == 1
+    assert "tem 2 instruções" in capsys.readouterr().err
