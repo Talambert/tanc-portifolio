@@ -33,21 +33,25 @@ class FakeBlob:
         if self.client.fail_with is not None:
             raise self.client.fail_with
 
-    def download_as_bytes(self) -> bytes:
+    def download_as_bytes(self, timeout: float | None = None) -> bytes:
+        self.client.timeouts.append(timeout)
         self._fail()
         if (self.bucket, self.name) not in self.client.objects:
             raise _exc().NotFound("404 GET ...: " + CANARY)
         return self.client.objects[(self.bucket, self.name)]
 
-    def upload_from_string(self, data: bytes) -> None:
+    def upload_from_string(self, data: bytes, timeout: float | None = None) -> None:
+        self.client.timeouts.append(timeout)
         self._fail()
         self.client.objects[(self.bucket, self.name)] = data
 
-    def exists(self) -> bool:
+    def exists(self, timeout: float | None = None) -> bool:
+        self.client.timeouts.append(timeout)
         self._fail()
         return (self.bucket, self.name) in self.client.objects
 
-    def delete(self) -> None:
+    def delete(self, timeout: float | None = None) -> None:
+        self.client.timeouts.append(timeout)
         self._fail()
         if (self.bucket, self.name) not in self.client.objects:
             raise _exc().NotFound("404 DELETE")
@@ -74,6 +78,7 @@ class FakeClient:
         self.blob_calls: list[tuple[str, str]] = []
         self.list_calls: list[tuple[str, str | None]] = []
         self.fail_with: Exception | None = None
+        self.timeouts: list[float | None] = []
 
     def bucket(self, name: str) -> FakeBucket:
         return FakeBucket(self, name)
@@ -113,6 +118,25 @@ def test_uri_maps_to_bucket_and_blob(storage: Any, client: FakeClient) -> None:
     # barra invertida e barras repetidas normalizam para a mesma chave
     assert storage.exists("gs://bkt" + chr(92) + "bronze//x" + chr(92) + "a.csv") is True
     assert ("bkt", "bronze/x/a.csv") in client.blob_calls
+
+
+@needs_google
+def test_timeout_reaches_every_blob_call(client: FakeClient) -> None:
+    from dataeng_core.storage.gcs import GcsStorage
+
+    custom = GcsStorage("meu-projeto", client=client, timeout=42)
+    custom.write("gs://bkt/x", b"1")
+    custom.read("gs://bkt/x")
+    custom.exists("gs://bkt/x")
+    custom.delete("gs://bkt/x")
+    assert client.timeouts == [42] * 4
+
+
+@needs_google
+def test_default_timeout_is_300(storage: Any, client: FakeClient) -> None:
+    storage.write("gs://bkt/x", b"1")
+    storage.read("gs://bkt/x")
+    assert client.timeouts == [300, 300]
 
 
 @needs_google
@@ -239,6 +263,7 @@ def test_importing_package_without_gcp_extra_works() -> None:
 @needs_gcp_credentials
 @pytest.mark.gcp
 def test_gcs_storage_passes_contract_on_real_gcp() -> None:
+    """ATENÇÃO: o contrato lista o bucket inteiro; use apenas um bucket de teste DEDICADO."""
     from dataeng_core.storage.gcs import GcsStorage
 
     bucket = os.environ.get("DATAENG_GCP_BUCKET")

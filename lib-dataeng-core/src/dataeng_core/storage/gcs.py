@@ -30,10 +30,11 @@ def _api_failure(exc: Exception, what: str) -> str:
 
 
 class GcsStorage:
-    def __init__(self, project: str, client: Any = None) -> None:
+    def __init__(self, project: str, client: Any = None, timeout: float = 300) -> None:
         if not isinstance(project, str) or not project.strip():
             raise ConfigError("o projeto GCP do storage está vazio.", operation="GcsStorage")
         self._project = project
+        self._timeout = timeout
         if client is None:
             try:
                 import google.cloud.storage as storage
@@ -84,7 +85,7 @@ class GcsStorage:
     def read(self, path: str) -> bytes:
         blob = self._blob(path, "storage.read")
         try:
-            return bytes(blob.download_as_bytes())
+            return bytes(blob.download_as_bytes(timeout=self._timeout))
         except DataEngError:
             raise
         except Exception as exc:
@@ -98,7 +99,9 @@ class GcsStorage:
     def write(self, path: str, data: bytes) -> None:
         blob = self._blob(path, "storage.write")
         try:
-            blob.upload_from_string(data)  # o upload do GCS é atômico: o objeto aparece inteiro ou não aparece
+            blob.upload_from_string(
+                data, timeout=self._timeout
+            )  # o upload do GCS é atômico: o objeto aparece inteiro ou não aparece
         except DataEngError:
             raise
         except Exception as exc:
@@ -119,7 +122,7 @@ class GcsStorage:
     def exists(self, path: str) -> bool:
         blob = self._blob(path, "storage.exists")
         try:
-            return bool(blob.exists())
+            return bool(blob.exists(timeout=self._timeout))
         except DataEngError:
             raise
         except Exception as exc:
@@ -128,7 +131,7 @@ class GcsStorage:
     def delete(self, path: str) -> None:
         blob = self._blob(path, "storage.delete")
         try:
-            blob.delete()
+            blob.delete(timeout=self._timeout)
         except DataEngError:
             raise
         except Exception as exc:

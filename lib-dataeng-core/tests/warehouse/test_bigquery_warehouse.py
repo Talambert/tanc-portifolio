@@ -7,6 +7,8 @@ contrato `@pytest.mark.gcp` (rodado pelo usuário com credenciais) faz.
 
 from __future__ import annotations
 
+import datetime as dt
+import logging
 import os
 import re
 from collections.abc import Callable
@@ -51,10 +53,13 @@ class FakeResult:
 
 
 class FakeJob:
+    timeouts: list[float | None] = []  # compartilhada: registra o timeout de todo .result()
+
     def __init__(self, result: FakeResult) -> None:
         self._result = result
 
-    def result(self) -> FakeResult:
+    def result(self, timeout: float | None = None) -> FakeResult:
+        self.timeouts.append(timeout)
         return self._result
 
 
@@ -67,12 +72,19 @@ class FakeClient:
         self.events: list[str] = []
         self.on_query: Callable[[str], FakeResult | Exception | None] = lambda sql: None
         self.load_error: Exception | None = None
+        self.updates: list[tuple[Any, list[str]]] = []
+        FakeJob.timeouts = []
 
     def get_table(self, ref: str) -> FakeTable:
         self.events.append("get_table")
         if ref not in self.tables:
             raise _exc().NotFound("404 " + ref)
         return self.tables[ref]
+
+    def update_table(self, table: Any, fields: list[str]) -> Any:
+        self.events.append("update_table")
+        self.updates.append((table, fields))
+        return table
 
     def query(self, sql: str, location: str | None = None) -> FakeJob:
         self.events.append("query")
@@ -90,6 +102,7 @@ class FakeClient:
         if self.load_error is not None:
             raise self.load_error
         self.loads.append((df.copy(), destination, job_config, location))
+        self.tables[destination] = FakeTable(list(df.columns))
         return FakeJob(FakeResult())
 
 
@@ -184,13 +197,13 @@ def test_create_or_replace_view_quotes_validated_name(wh: Any, client: FakeClien
 
 
 @needs_google
-def test_sql_syntax_error_becomes_sql_error_with_first_line(wh: Any, client: FakeClient) -> None:
+def test_sql_syntax_error_becomes_sql_error_with_only_first_line(wh: Any, client: FakeClient) -> None:
     client.on_query = lambda sql: _exc().BadRequest(
         "Syntax error: Unexpected identifier at [1:8]\nsegunda linha " + CANARY
     )
     with pytest.raises(SqlError, match="Syntax error") as info:
         wh.run_sql(["SELEC 1"])
-    assert CANARY not in str(info.value)
+    assert "segunda linha" not in str(info.value)  # só a 1ª linha, nunca o corpo completo da API
 
 
 # ---- catálogo ------------------------------------------------------------------------------
@@ -343,7 +356,7 @@ def test_merge_is_a_single_atomic_statement_with_null_safe_keys(wh: Any, client:
         f"""
         MERGE {T} AS t USING {staging} AS d
         ON t.`id` IS NOT DISTINCT FROM d.`id` AND t.`dia` IS NOT DISTINCT FROM d.`dia`
-        WHEN MATCHED THEN UPDATE SET t.`nome` = d.`nome`
+        WHEN MATCHED THEN UPDATE SET `nome` = d.`nome`
         WHEN NOT MATCHED THEN INSERT (`id`, `nome`, `dia`) VALUES (d.`id`, d.`nome`, d.`dia`)
         """
     )
@@ -472,3 +485,114 @@ def test_bigquery_warehouse_passes_contract_on_real_gcp() -> None:
         pytest.skip("defina DATAENG_GCP_DATASET (dataset de teste existente) para rodar o contrato real")
     wh = BigQueryWarehouse(os.environ["DATAENG_GCP_PROJECT"], os.environ.get("DATAENG_GCP_LOCATION", "US"))
     run_warehouse_contract(wh, dataset=dataset, int_type="INT64", text_type="STRING")
+
+
+# ---- tabela de passagem: expiração, limpeza e log -----------------------------------------
+
+
+def _capture_log() -> tuple[list[logging.LogRecord], Callable[[], None]]:
+    from dataeng_core.base.runtime import get_logger
+
+    records: list[logging.LogRecord] = []
+
+    class _Handler(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            records.append(record)
+
+    logger = get_logger("dataeng_core.warehouse.bigquery")
+    handler = _Handler(level=logging.WARNING)
+    logger.addHandler(handler)
+    return records, lambda: logger.removeHandler(handler)
+
+
+@needs_google
+def test_staging_table_gets_expiration_before_any_insert_or_merge(wh: Any, client: FakeClient) -> None:
+    _existing(client)
+    before = dt.datetime.now(dt.UTC)
+    wh.load("ds.t", _frame([(1, "a", "d1")]), mode="merge", merge_keys=["id"])
+    assert client.events.index("load") < client.events.index("update_table") < client.events.index("query")
+    ((table, fields),) = client.updates
+    assert fields == ["expires"]
+    assert before + dt.timedelta(hours=23) < table.expires < before + dt.timedelta(days=2)
+    assert table is client.tables[client.loads[0][1]]
+
+
+@needs_google
+def test_failed_drop_logs_warning_and_keeps_original_error(wh: Any, client: FakeClient) -> None:
+    _existing(client)
+
+    def fail(sql: str) -> Exception | None:
+        if sql.startswith("DROP"):
+            return _exc().ServiceUnavailable("503 " + CANARY)
+        if "INSERT" in sql:
+            return _exc().BadRequest("falha")
+        return None
+
+    client.on_query = fail
+    records, undo = _capture_log()
+    try:
+        with pytest.raises(LoadError, match="BadRequest"):
+            wh.load("ds.t", _frame([(1, CANARY, "d1")]), mode="append")
+    finally:
+        undo()
+    (record,) = records
+    text = record.getMessage()
+    assert record.levelno == logging.WARNING
+    assert client.loads[0][1] in text and "ServiceUnavailable" in text and CANARY not in text
+
+
+@needs_google
+def test_failed_drop_after_success_still_returns_row_count(wh: Any, client: FakeClient) -> None:
+    _existing(client)
+    client.on_query = lambda sql: _exc().ServiceUnavailable("x") if sql.startswith("DROP") else None
+    records, undo = _capture_log()
+    try:
+        assert wh.load("ds.t", _frame([(1, "a", "d1")]), mode="append") == 1
+    finally:
+        undo()
+    assert len(records) == 1
+
+
+@needs_google
+def test_successful_drop_logs_no_warning(wh: Any, client: FakeClient) -> None:
+    _existing(client)
+    records, undo = _capture_log()
+    try:
+        wh.load("ds.t", _frame([(1, "a", "d1")]), mode="append")
+    finally:
+        undo()
+    assert records == []
+
+
+# ---- nomes exatos, índice e timeouts ------------------------------------------------------
+
+
+@needs_google
+def test_columns_renamed_to_table_schema_and_named_index_dropped(wh: Any, client: FakeClient) -> None:
+    _existing(client, ["id", "nome", "dia"])
+    frame = pd.DataFrame({"ID": [1], "Nome": ["a"], "DIA": ["d1"]}, index=pd.Index([5], name="idx"))
+    wh.load("ds.t", frame, mode="merge", merge_keys=["id"])
+    sent = client.loads[0][0]
+    assert list(sent.columns) == ["id", "nome", "dia"]
+    assert sent.index.name is None and list(sent.index) == [0]
+    assert "INSERT (`id`, `nome`, `dia`)" in _norm(client.sql[0])
+    assert "`ID`" not in client.sql[0]
+
+
+@needs_google
+def test_timeout_is_passed_to_every_job_result(client: FakeClient) -> None:
+    from dataeng_core.warehouse.bigquery import BigQueryWarehouse
+
+    custom = BigQueryWarehouse("meu-proj", "US", client=client, timeout=123)
+    _existing(client)
+    client.on_query = lambda sql: FakeResult(rows=[(1,)])
+    custom.load("ds.t", _frame([(1, "a", "d1")]), mode="append")
+    custom.run_sql(["SELECT 1"])
+    custom.row_count("ds.t")
+    assert FakeJob.timeouts and set(FakeJob.timeouts) == {123}
+
+
+@needs_google
+def test_default_timeout_is_600(wh: Any, client: FakeClient) -> None:
+    wh.run_sql(["SELECT 1"])
+    assert FakeJob.timeouts == [600]
