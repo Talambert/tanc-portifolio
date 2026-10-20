@@ -9,7 +9,7 @@ description = "Biblioteca de engenharia de dados: ingestão, transformação e q
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "pandas>=2.0",
+    "pandas>=2.1",
     "pydantic>=2.0",
     "openpyxl>=3.1",
     "pyyaml>=6.0",

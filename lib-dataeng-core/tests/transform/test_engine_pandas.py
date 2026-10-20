@@ -386,3 +386,84 @@ def test_hook_reset_index_does_not_misattribute_originals(tmp_path: Path) -> Non
         df, {"hook": "h:so_pares"}, {"rejeitar_se": [{"coluna": "v", "regra": "regex", "padrao": "^4$"}]}, root=tmp_path
     )
     assert res.rejected["v"].tolist() == ["2"]
+
+
+def _hook_run(tmp_path: Path, body: str, df: pd.DataFrame, *ops: dict[str, Any]) -> TransformResult:
+    (tmp_path / "h.py").write_text(f"def f(df):\n{body}\n", encoding="utf-8")
+    return _run(df, {"hook": "h:f"}, *ops, root=tmp_path)
+
+
+_ONLY_3 = {"rejeitar_se": [{"coluna": "v", "regra": "regex", "padrao": "^3$"}]}
+
+
+def test_hook_reorder_with_reset_index_keeps_correct_originals(tmp_path: Path) -> None:
+    df = pd.DataFrame({"v": ["1", "2", "3"], "o": ["a", "b", "c"]})
+    res = _hook_run(tmp_path, "    return df.sort_values('v', ascending=False).reset_index(drop=True)", df, _ONLY_3)
+    assert res.rows["v"].tolist() == ["3"]
+    assert res.rejected["v"].tolist() == ["2", "1"]
+    assert res.rejected["o"].tolist() == ["b", "a"]
+    assert "_dataeng_row_id" not in res.rows.columns and "_dataeng_row_id" not in res.rejected.columns
+
+
+def test_hook_reorder_and_filter(tmp_path: Path) -> None:
+    df = pd.DataFrame({"v": ["1", "2", "3", "4"], "o": ["a", "b", "c", "d"]})
+    res = _hook_run(
+        tmp_path,
+        "    return df[df['v'] != '1'].sort_values('v', ascending=False).reset_index(drop=True)",
+        df,
+        {"rejeitar_se": [{"coluna": "v", "regra": "regex", "padrao": "^(3|4)$"}]},
+    )
+    assert res.rows["v"].tolist() == ["4", "3"]
+    assert res.rejected["o"].tolist() == ["b"]
+
+
+def test_hook_that_adds_new_rows_and_drops_row_id_column(tmp_path: Path) -> None:
+    df = pd.DataFrame({"v": ["1", "2"]})
+    body = "    import pandas as pd\n    return pd.concat([df, pd.DataFrame({'v': ['x']})], ignore_index=True)"
+    res = _hook_run(tmp_path, body, df, {"rejeitar_se": [{"coluna": "v", "regra": "regex", "padrao": "^1$"}]})
+    assert res.rows["v"].tolist() == ["1"]
+    assert sorted(res.rejected["v"].tolist()) == ["2", "x"]
+
+    # gancho que seleciona colunas (descarta o identificador interno): ainda correto
+    res = _hook_run(tmp_path, "    return df[['v']].iloc[::-1].reset_index(drop=True)", df, _ONLY_3)
+    assert res.rejected["v"].tolist() == ["2", "1"]
+
+
+def test_hook_that_duplicates_rows(tmp_path: Path) -> None:
+    df = pd.DataFrame({"v": ["1", "3"]})
+    res = _hook_run(
+        tmp_path,
+        "    import pandas as pd\n    return pd.concat([df, df], ignore_index=True)",
+        df,
+        {"rejeitar_se": [{"coluna": "v", "regra": "regex", "padrao": "^1$"}]},
+    )
+    assert res.rows["v"].tolist() == ["1", "1"]
+    assert res.rejected["v"].tolist() == ["3", "3"]
+
+
+def test_hook_that_changes_nothing(tmp_path: Path) -> None:
+    df = pd.DataFrame({"v": ["1", "2", "3"]})
+    res = _hook_run(
+        tmp_path, "    return df", df, {"rejeitar_se": [{"coluna": "v", "regra": "regex", "padrao": "^2$"}]}
+    )
+    assert res.rows["v"].tolist() == ["2"]
+    assert res.rejected["v"].tolist() == ["1", "3"]
+    assert list(res.rows.columns) == ["v"]
+
+
+def test_timestamp_year_out_of_pandas_range_goes_to_rejected_without_crash() -> None:
+    df = pd.DataFrame({"t": ["31/12/9999 10:00", "2024-01-01T00:00:00Z"]})
+    res = _run(df, _tipar("t", "timestamp"))
+    assert len(res.rows) == 1 and len(res.rejected) == 1
+    assert res.rows["t"].iloc[0] == pd.Timestamp("2024-01-01", tz="UTC")
+    assert "timestamp" in res.rejected["_motivo"].iloc[0]
+
+
+def test_cast_after_filter_raises_no_warning() -> None:
+    import warnings
+
+    df = pd.DataFrame({"a": ["x", "1", "2"], "b": ["5", "6", "7"]})
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        res = _run(df, _tipar("a", "inteiro"), _tipar("b", "inteiro"), {"normalizar": {"b": ["trim"]}})
+    assert res.rows["b"].tolist() == ["6", "7"]

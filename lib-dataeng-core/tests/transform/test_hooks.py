@@ -86,7 +86,7 @@ def test_import_error_in_module_is_config_error_and_leaves_no_residue(tmp_path: 
         resolve_hook("quebrado:f", project_root=tmp_path)
     with pytest.raises(ConfigError, match="sintaxe"):
         resolve_hook("sintaxe:f", project_root=tmp_path)
-    assert set(sys.modules) == antes
+    assert not (set(sys.modules) - antes)
     assert sys.path == antes_path
 
 
@@ -103,3 +103,14 @@ def test_module_path_cannot_escape_project_root(tmp_path: Path) -> None:
     _write(tmp_path / "fora", "x.py", "def f(df):\n    return df\n")
     with pytest.raises(ConfigError):
         resolve_hook("..fora.x:f", project_root=root)
+
+
+def test_project_with_stdlib_named_files_does_not_evict_stdlib_modules(tmp_path: Path) -> None:
+    import types
+
+    _write(tmp_path, "types.py", "X = 1\n")
+    _write(tmp_path, "test/__init__.py", "")
+    _write(tmp_path, "h.py", "def f(df):\n    return df\n")
+    antes = sys.modules["types"]
+    resolve_hook("h:f", project_root=tmp_path)
+    assert sys.modules["types"] is antes is types

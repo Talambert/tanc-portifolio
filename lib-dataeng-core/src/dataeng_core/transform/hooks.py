@@ -40,18 +40,23 @@ def _is_under(module_file: str | None, root: Path) -> bool:
 
 
 def _purge_stale_modules(root: Path) -> None:
-    """Esquece módulos de mesmo nome carregados de OUTRA raiz, para que esta raiz prevaleça."""
-    nomes = {p.stem for p in root.glob("*.py")} | {p.name for p in root.iterdir() if p.is_dir()}
+    """Esquece módulos vindos de raízes de gancho já registradas (e desta), para o código atual prevalecer.
+
+    Só mexe em módulos cujo arquivo/pacote está sob uma raiz anterior; stdlib e terceiros ficam intactos.
+    """
+    antigas = [Path(r) for r in _HOOK_ROOTS] + [root]
     for key in list(sys.modules):
-        if key.split(".")[0] in nomes:
-            if not _is_under(getattr(sys.modules[key], "__file__", None), root):
-                del sys.modules[key]
+        mod = sys.modules[key]
+        origens = [getattr(mod, "__file__", None), *list(getattr(mod, "__path__", []) or [])]
+        if any(_is_under(o, a) for o in origens for a in antigas):
+            del sys.modules[key]
 
 
 def resolve_hook(ref: str, *, project_root: Path) -> Hook:
     """Importa `modulo:funcao` de dentro de `project_root` (que fica no início do `sys.path`).
 
-    Só executa o import do módulo; a função não é chamada aqui.
+    Só executa o import do módulo; a função não é chamada aqui. Efeito colateral: `sys.path` fica com
+    `project_root` na frente até o próximo `resolve_hook` (que troca a raiz).
     """
     match = _REF.match(ref)
     if not match:
@@ -73,6 +78,7 @@ def resolve_hook(ref: str, *, project_root: Path) -> Hook:
     caminho_antes = list(sys.path)
     modulos_antes = set(sys.modules)
     raiz = str(root)
+    _purge_stale_modules(root)
     # um pacote regular de outra raiz antiga venceria um pacote-namespace desta: mantém só a raiz atual
     for antiga in _HOOK_ROOTS:
         if antiga in sys.path:
@@ -82,7 +88,6 @@ def resolve_hook(ref: str, *, project_root: Path) -> Hook:
         sys.path.remove(raiz)
     sys.path.insert(0, raiz)
     importlib.invalidate_caches()
-    _purge_stale_modules(root)
     try:
         mod = importlib.import_module(module)
     except Exception as exc:

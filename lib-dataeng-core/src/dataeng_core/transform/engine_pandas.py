@@ -1,9 +1,14 @@
 """Motor de transformação declarativa em pandas, com quarentena das linhas ruins.
 
 Contrato de entrada: célula nula é `None`/`NaN`/`pd.NA`; valores chegam como texto (arquivos) ou crus (API).
+Timestamp sem fuso é tratado como UTC; anos fora de 1678-2261 são rejeitados.
 Contrato de saída: `rows` com dtypes anuláveis (`Int64`, `Float64`, `boolean`, `string`, `date` como
 `datetime.date` em coluna `object`, `timestamp` em UTC) e `rejected` com as colunas ORIGINAIS da linha
 mais `_motivo` (o motivo nunca contém o valor da célula).
+"Linha original" é a linha da entrada. Depois de um gancho que mantém o identificador interno
+`_dataeng_row_id` (qualquer reordenação, filtro ou reset_index que preserve as colunas) ela continua sendo a
+linha da entrada. Se o gancho descarta a coluna, duplica linhas ou cria linhas novas, a linha passa a ser a
+SAÍDA do gancho (já transformada por ele), para nunca apontar o registro de outra linha.
 """
 
 from __future__ import annotations
@@ -23,6 +28,8 @@ from dataeng_core.base.pipeline import RegraRejeicao, TipoSpec, TransformOp
 from dataeng_core.transform.hooks import resolve_hook
 
 MOTIVO = "_motivo"
+ROW_ID = "_dataeng_row_id"
+_TS_MIN_YEAR, _TS_MAX_YEAR = 1678, 2261
 _INT64_MIN, _INT64_MAX = -(2**63), 2**63 - 1
 
 
@@ -188,9 +195,10 @@ def _to_timestamp(v: Any, spec: TipoSpec) -> dt.datetime:
                 parsed = _strptime(s, _TS_FORMATS)
     else:
         raise _Bad
-    if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=dt.UTC)
-    return parsed.astimezone(dt.UTC)
+    parsed = parsed.replace(tzinfo=dt.UTC) if parsed.tzinfo is None else parsed.astimezone(dt.UTC)
+    if not _TS_MIN_YEAR <= parsed.year <= _TS_MAX_YEAR:  # fora do alcance do pandas 2.x (ns)
+        raise _Bad
+    return parsed
 
 
 def _to_text_value(v: Any, spec: TipoSpec) -> str:
@@ -326,7 +334,7 @@ class _State:
         frame = self.orig.loc[ids].copy()
         frame[MOTIVO] = pd.Series(motivos, dtype="string", index=frame.index)
         self.rejected.append(frame)
-        self.cur = self.cur.loc[[not m for m in mask]]
+        self.cur = self.cur.loc[[not m for m in mask]].copy()
 
     def result(self) -> TransformResult:
         if self.rejected:
@@ -384,7 +392,7 @@ def _op_deduplicar(st: _State, keys: list[str]) -> None:
     frame = st.cur[cols].astype(object).map(lambda v: repr(v) if isinstance(v, list | dict | set) else v)
     dup = frame.duplicated(keep="first")
     st.duplicates += int(dup.sum())
-    st.cur = st.cur.loc[~dup.to_numpy()]
+    st.cur = st.cur.loc[~dup.to_numpy()].copy()
 
 
 def _op_rejeitar(st: _State, regras: list[RegraRejeicao]) -> None:
@@ -398,7 +406,9 @@ def _op_rejeitar(st: _State, regras: list[RegraRejeicao]) -> None:
 def _op_hook(st: _State, ref: str, project_root: Path) -> None:
     fn = resolve_hook(ref, project_root=project_root)
     try:
-        out = fn(st.cur.copy())
+        marked = st.cur.copy()
+        marked[ROW_ID] = marked.index.to_numpy()
+        out = fn(marked)
     except Exception as exc:
         raise DataEngError(
             f"o gancho '{ref}' falhou ({type(exc).__name__}); veja o traceback e corrija a função",
@@ -409,14 +419,16 @@ def _op_hook(st: _State, ref: str, project_root: Path) -> None:
             f"o gancho '{ref}' deve devolver um DataFrame, mas devolveu {type(out).__name__}",
             operation="transform.hook",
         )
-    before = st.cur.index
-    kept = out.index.is_unique and (
-        out.index.equals(before) or (not isinstance(out.index, pd.RangeIndex) and bool(out.index.isin(before).all()))
-    )
-    if kept:
-        st.cur = out
-    else:  # o gancho renumerou as linhas: a "linha original" passa a ser a saída do gancho
-        st.cur = out.reset_index(drop=True)
+    ids = out[ROW_ID] if ROW_ID in out.columns else None
+    known = set(st.cur.index)
+    stable = ids is not None and ids.notna().all() and ids.is_unique and all(i in known for i in ids.tolist())
+    clean = out.drop(columns=[ROW_ID], errors="ignore")
+    if stable:
+        assert ids is not None
+        clean.index = pd.Index([int(i) for i in ids.tolist()])
+        st.cur = clean.copy()
+    else:  # sem identificador confiável: a "linha original" passa a ser a saída do gancho
+        st.cur = clean.reset_index(drop=True)
         st.orig = st.cur.copy()
 
 
