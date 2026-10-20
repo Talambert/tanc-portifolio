@@ -1,0 +1,8 @@
+# Execução local (DuckDB + pasta local). Valores fictícios; nada aqui é segredo.
+modo: local
+projeto_gcp: projeto-local
+regiao: regiao-local
+bucket_bronze: bronze-local
+dataset_silver: silver
+dataset_gold: gold
+pasta_local: .local

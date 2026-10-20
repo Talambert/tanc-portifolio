@@ -1,0 +1,77 @@
+schema_version: 1
+nome: {{ cookiecutter.nome_projeto }}
+agenda: "{{ cookiecutter.agenda_cron }}"
+parametros: {}
+
+etapas:
+{%- for origem in cookiecutter.origens.replace(" ", "").split(",") %}
+{%- if origem == "arquivo" %}
+  - id: ingere_arquivo
+    tipo: ingestao
+    motor: {{ "dataproc" if cookiecutter.motor_ingestao == "dataproc" else "cloud_run" }}
+    origem:
+      tipo: arquivo
+      # Caminho relativo à raiz do projeto, ou gs://... / https://... em dev e prod.
+      localizacao: data/amostra.csv
+      formato: csv
+      encoding: utf-8
+      delimitador: ";"
+      schema: schemas/origem.yaml
+    destino:
+      bronze: "gs://${bucket_bronze}/bronze/registros_arquivo/"
+      tabela: "${dataset_silver}.registros_arquivo"
+      schema: schemas/destino.yaml
+      modo_carga: {{ cookiecutter.modo_carga }}
+{%- if cookiecutter.modo_carga == "merge" %}
+      chaves_merge: [id]
+{%- endif %}
+      particao: _ingestion_date
+      ddl: [sql/ddl/silver_registros_arquivo.sql]
+    transformacao:
+      - tipar:
+          id: {tipo: inteiro}
+          valor: {tipo: decimal, separador_decimal: ","}
+      - deduplicar: [id]
+      - rejeitar_se:
+          - {coluna: id, regra: nao_nulo}
+    qualidade:
+      - nao_nulo: [id]
+{%- elif origem == "api" %}
+  - id: ingere_api
+    tipo: ingestao
+    motor: {{ "dataproc" if cookiecutter.motor_ingestao == "dataproc" else "cloud_run" }}
+    origem:
+      tipo: api
+      endpoint: "https://api.exemplo.com.br/v1/registros"  # EXEMPLO: troque pelo endpoint real
+      autenticacao:
+        tipo: bearer
+        segredo_env: API_TOKEN   # nome da variável de ambiente; o valor nunca vai para o repositório
+      paginacao:
+        tipo: pagina
+        parametro: page
+        tamanho: 100
+    destino:
+      bronze: "gs://${bucket_bronze}/bronze/registros_api/"
+      tabela: "${dataset_silver}.registros_api"
+      schema: schemas/destino.yaml
+      modo_carga: {{ cookiecutter.modo_carga }}
+{%- if cookiecutter.modo_carga == "merge" %}
+      chaves_merge: [id]
+{%- endif %}
+      particao: _ingestion_date
+      ddl: [sql/ddl/silver_registros_api.sql]
+    transformacao:
+      - tipar:
+          id: {tipo: inteiro}
+          valor: {tipo: decimal}
+      - deduplicar: [id]
+      - rejeitar_se:
+          - {coluna: id, regra: nao_nulo}
+    qualidade:
+      - nao_nulo: [id]
+{%- endif %}
+{%- endfor %}
+
+execucao_padrao:
+  cloud_run: {cpu: 1, memoria: 2Gi, timeout: 3600}
+  dataproc: {runtime: "2.2", executores: 2}

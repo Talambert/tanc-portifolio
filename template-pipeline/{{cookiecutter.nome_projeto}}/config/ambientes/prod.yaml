@@ -1,0 +1,8 @@
+# Ambiente de produção no GCP. Valores de EXEMPLO (fictícios): troque pelos do seu projeto.
+modo: gcp
+projeto_gcp: meu-projeto-prod
+regiao: {{ cookiecutter.regiao }}
+bucket_bronze: meu-projeto-prod-bronze
+dataset_silver: {{ cookiecutter.dataset_silver }}
+dataset_gold: {{ cookiecutter.dataset_gold }}
+service_account: pipeline-prod@meu-projeto-prod.iam.gserviceaccount.com

@@ -1,0 +1,17 @@
+{
+  "nome_projeto": "meu-pipeline",
+  "tipo_projeto": ["ingestao"],
+  "origens": "arquivo",
+  "motor_ingestao": ["cloud_run", "dataproc", "ambos"],
+  "modo_carga": ["append", "overwrite_particao", "merge"],
+  "projeto_gcp": "meu-projeto-dev",
+  "regiao": "southamerica-east1",
+  "bucket_bronze": "meu-projeto-dev-bronze",
+  "dataset_silver": "silver",
+  "dataset_gold": "gold",
+  "agenda_cron": "0 6 * * 1",
+  "origem_da_biblioteca": ["git", "artifact_registry"],
+  "versao_biblioteca": "0.1.0",
+  "repositorio_biblioteca": "https://github.com/Talambert/tanc-portifolio.git",
+  "indice_artifact_registry": "https://REGIAO-python.pkg.dev/meu-projeto-dev/meu-repositorio/simple/"
+}

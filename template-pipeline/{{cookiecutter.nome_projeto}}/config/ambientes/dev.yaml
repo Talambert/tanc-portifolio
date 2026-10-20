@@ -1,0 +1,8 @@
+# Ambiente de desenvolvimento no GCP. Valores de EXEMPLO: troque pelos do seu projeto.
+modo: gcp
+projeto_gcp: {{ cookiecutter.projeto_gcp }}
+regiao: {{ cookiecutter.regiao }}
+bucket_bronze: {{ cookiecutter.bucket_bronze }}
+dataset_silver: {{ cookiecutter.dataset_silver }}
+dataset_gold: {{ cookiecutter.dataset_gold }}
+service_account: pipeline-dev@meu-projeto-dev.iam.gserviceaccount.com
