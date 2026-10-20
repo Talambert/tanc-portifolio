@@ -14,8 +14,8 @@ from sqlglot import exp
 
 from dataeng_core.base.errors import ConfigError, DataEngError, LoadError, SqlError
 from dataeng_core.warehouse.base import (
-    LOAD_MODES,
     LoadMode,
+    check_load_request,
     split_table,
     validate_identifier,
 )
@@ -151,38 +151,10 @@ class LocalWarehouse:
         merge_keys: Sequence[str] = (),
     ) -> int:
         op = "warehouse.load"
-        if mode not in LOAD_MODES:
-            raise ConfigError(
-                f"modo de carga desconhecido: '{mode}'. Use um de: {', '.join(LOAD_MODES)}.", operation=op
-            )
-        schema, name = split_table(table, operation=op)
-        if not isinstance(rows, pd.DataFrame) or len(rows.columns) == 0:
-            raise ConfigError("os dados a carregar devem ser um DataFrame com ao menos uma coluna.", operation=op)
-        columns = [validate_identifier(str(c), what="nome de coluna", operation=op) for c in rows.columns]
-        if len({c.lower() for c in columns}) != len(columns):
-            raise ConfigError("o DataFrame tem nomes de coluna repetidos.", operation=op)
-        keys = [validate_identifier(k, what="chave de merge", operation=op) for k in merge_keys]
-        part = (
-            validate_identifier(partition_column, what="coluna de partição", operation=op) if partition_column else None
+        request = check_load_request(
+            table, rows, mode=mode, partition_column=partition_column, merge_keys=merge_keys, operation=op
         )
-
-        if mode == "merge" and not keys:
-            raise LoadError("o modo merge exige merge_keys (as colunas que identificam a linha).", operation=op)
-        if mode == "overwrite_partition" and part is None:
-            raise LoadError("o modo overwrite_partition exige partition_column.", operation=op)
-        control = keys if mode == "merge" else ([part] if part else [])
-        lowered = {c.lower() for c in columns}
-        absent = [c for c in control if c.lower() not in lowered]
-        if absent:
-            raise LoadError(f"coluna(s) ausente(s) nos dados: {', '.join(absent)}.", operation=op)
-        if (
-            mode == "merge"
-            and rows.duplicated(subset=[c for c in columns if c.lower() in {k.lower() for k in keys}]).any()
-        ):
-            raise LoadError(
-                f"os dados têm chaves de merge duplicadas ({', '.join(keys)}); deduplique antes de carregar.",
-                operation=op,
-            )
+        schema, name, columns, keys, part = request
 
         target = _qualified(schema, name)
         incoming = f"_incoming_{uuid.uuid4().hex}"

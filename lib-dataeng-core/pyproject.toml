@@ -23,6 +23,8 @@ gcp = [
     "google-cloud-storage>=2.14",
     "google-cloud-bigquery>=3.17",
     "google-cloud-pubsub>=2.19",
+    "pyarrow>=14",
+    "db-dtypes>=1.2",
 ]
 spark = ["pyspark>=3.5"]
 airflow = [
@@ -40,6 +42,10 @@ dev = [
     "pandas-stubs",
     "types-requests",
     "types-PyYAML",
+    "google-cloud-storage>=2.14",
+    "google-cloud-bigquery>=3.17",
+    "pyarrow>=14",
+    "db-dtypes>=1.2",
 ]
 
 [project.scripts]
@@ -51,6 +57,7 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+markers = ["gcp: contrato contra GCP real; pulado sem GOOGLE_APPLICATION_CREDENTIALS e DATAENG_GCP_PROJECT"]
 
 [tool.ruff]
 line-length = 120
@@ -63,6 +70,10 @@ select = ["E", "F", "I", "UP", "B"]
 python_version = "3.11"
 mypy_path = "src"
 packages = ["dataeng_core"]
+
+[[tool.mypy.overrides]]
+module = ["google", "google.*"]
+ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = ["dataeng_core.base", "dataeng_core.base.*"]

@@ -22,11 +22,13 @@ class Storage(Protocol):
 
 
 def make_storage(env: Environment) -> Storage:
-    """Local quando `env.modo == "local"`; GCS (Tarefa 14) quando `gcp`."""
+    """Local quando `env.modo == "local"`; GCS quando `gcp` (exige o extra `[gcp]`)."""
     if env.modo == "local":
         from pathlib import Path
 
         from dataeng_core.storage.local import LocalStorage
 
         return LocalStorage(Path(env.pasta_local))
-    raise NotImplementedError("Storage do modo gcp (GcsStorage) será adicionado na Tarefa 14.")
+    from dataeng_core.storage.gcs import GcsStorage
+
+    return GcsStorage(env.projeto_gcp)

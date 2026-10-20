@@ -53,11 +53,6 @@ def test_make_warehouse_local(tmp_path: Path) -> None:
     assert (tmp_path / "warehouse.duckdb").exists()
 
 
-def test_make_warehouse_gcp_not_yet_available(tmp_path: Path) -> None:
-    with pytest.raises(NotImplementedError):
-        make_warehouse(_env(tmp_path, "gcp"))
-
-
 @pytest.mark.parametrize("bad", ["", "a b", "a;b", 'a"b', "a.b.c", "1abc", "a-b", "a..b", ".a", "a."])
 def test_invalid_table_names_rejected(bad: str) -> None:
     wh = LocalWarehouse()

@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import re
 from collections.abc import Sequence
-from typing import Literal, Protocol
+from typing import Literal, NamedTuple, Protocol
 
 import pandas as pd
 
-from dataeng_core.base.errors import ConfigError
+from dataeng_core.base.errors import ConfigError, LoadError
 from dataeng_core.base.params import Environment
 
 LoadMode = Literal["append", "overwrite_partition", "merge"]
@@ -74,12 +74,67 @@ def split_table(table: str, *, operation: str) -> tuple[str | None, str]:
     return (names[0], names[1]) if len(names) == 2 else (None, names[0])
 
 
+class LoadRequest(NamedTuple):
+    """Argumentos de `Warehouse.load` já validados (identificadores seguros para citar em SQL)."""
+
+    schema: str | None
+    table: str
+    columns: list[str]
+    keys: list[str]
+    partition: str | None
+
+
+def check_load_request(
+    table: str,
+    rows: pd.DataFrame,
+    *,
+    mode: str,
+    partition_column: str | None,
+    merge_keys: Sequence[str],
+    operation: str,
+) -> LoadRequest:
+    """Validação comum às implementações de `load`, antes de qualquer gravação."""
+    if mode not in LOAD_MODES:
+        raise ConfigError(
+            f"modo de carga desconhecido: '{mode}'. Use um de: {', '.join(LOAD_MODES)}.", operation=operation
+        )
+    schema, name = split_table(table, operation=operation)
+    if not isinstance(rows, pd.DataFrame) or len(rows.columns) == 0:
+        raise ConfigError("os dados a carregar devem ser um DataFrame com ao menos uma coluna.", operation=operation)
+    columns = [validate_identifier(str(c), what="nome de coluna", operation=operation) for c in rows.columns]
+    if len({c.lower() for c in columns}) != len(columns):
+        raise ConfigError("o DataFrame tem nomes de coluna repetidos.", operation=operation)
+    keys = [validate_identifier(k, what="chave de merge", operation=operation) for k in merge_keys]
+    part = (
+        validate_identifier(partition_column, what="coluna de partição", operation=operation)
+        if partition_column
+        else None
+    )
+    if mode == "merge" and not keys:
+        raise LoadError("o modo merge exige merge_keys (as colunas que identificam a linha).", operation=operation)
+    if mode == "overwrite_partition" and part is None:
+        raise LoadError("o modo overwrite_partition exige partition_column.", operation=operation)
+    control = keys if mode == "merge" else ([part] if part else [])
+    lowered = {c.lower() for c in columns}
+    absent = [c for c in control if c.lower() not in lowered]
+    if absent:
+        raise LoadError(f"coluna(s) ausente(s) nos dados: {', '.join(absent)}.", operation=operation)
+    if mode == "merge" and rows.duplicated(subset=[c for c in columns if c.lower() in {k.lower() for k in keys}]).any():
+        raise LoadError(
+            f"os dados têm chaves de merge duplicadas ({', '.join(keys)}); deduplique antes de carregar.",
+            operation=operation,
+        )
+    return LoadRequest(schema, name, columns, keys, part)
+
+
 def make_warehouse(env: Environment) -> Warehouse:
-    """Local (DuckDB em arquivo) quando `env.modo == "local"`; BigQuery (Tarefa 14) quando `gcp`."""
+    """Local (DuckDB em arquivo) quando `env.modo == "local"`; BigQuery quando `gcp` (exige o extra `[gcp]`)."""
     if env.modo == "local":
         from pathlib import Path
 
         from dataeng_core.warehouse.local import LocalWarehouse
 
         return LocalWarehouse(Path(env.pasta_local) / "warehouse.duckdb")
-    raise NotImplementedError("Warehouse do modo gcp (BigQueryWarehouse) será adicionado na Tarefa 14.")
+    from dataeng_core.warehouse.bigquery import BigQueryWarehouse
+
+    return BigQueryWarehouse(env.projeto_gcp, env.regiao)
