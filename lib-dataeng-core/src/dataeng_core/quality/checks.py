@@ -65,7 +65,14 @@ def _unique(df: pd.DataFrame, check: QualityCheck, cols: list[str]) -> float:
 
 def _range(df: pd.DataFrame, check: QualityCheck, col: str) -> float:
     s = df[col].dropna()
-    if not (pd.api.types.is_numeric_dtype(s) and not pd.api.types.is_bool_dtype(s)):
+    if len(s) == 0:
+        return 1.0
+    if s.dtype == object:
+        try:
+            s = pd.to_numeric(s, errors="raise")
+        except (ValueError, TypeError) as exc:
+            raise _fail_exec(check, col, "`faixa` exige coluna numérica") from exc
+    if not pd.api.types.is_numeric_dtype(s) or pd.api.types.is_bool_dtype(s):
         raise _fail_exec(check, col, "`faixa` exige coluna numérica")
     ok = pd.Series(True, index=s.index)
     if check.minimo is not None:
@@ -91,6 +98,9 @@ def _pattern(df: pd.DataFrame, check: QualityCheck, col: str) -> float:
     return _rate(int(ok.sum()), len(s))
 
 
+_PER_COLUMN = {"nao_nulo": _not_null, "faixa": _range, "conjunto": _in_set, "formato": _pattern}
+
+
 def _result(check: QualityCheck, coluna: str, taxa: float) -> CheckResult:
     return CheckResult(
         nome=check.tipo,
@@ -111,6 +121,15 @@ def run_checks(df: pd.DataFrame, checks: Sequence[QualityCheck]) -> list[CheckRe
             f"a verificação não pôde ser executada: a coluna {nomes} não existe nos dados",
             operation="run_checks",
         )
+    duplicated = sorted(
+        {c for ch in checks for c in ch.colunas if c in df.columns and df.columns.tolist().count(c) > 1}
+    )
+    if duplicated:
+        nomes = ", ".join(f"'{c}'" for c in duplicated)
+        raise QualityError(
+            f"a verificação não pôde ser executada: o nome de coluna {nomes} está duplicado nos dados",
+            operation="run_checks",
+        )
     if len(df) == 0 and checks:
         log.warning("tabela vazia: as verificações de qualidade aprovam por vacuidade (0 linhas)")
     results: list[CheckResult] = []
@@ -118,12 +137,12 @@ def run_checks(df: pd.DataFrame, checks: Sequence[QualityCheck]) -> list[CheckRe
         if check.tipo == "unico":
             results.append(_result(check, ", ".join(check.colunas), _unique(df, check, check.colunas)))
             continue
-        per_column = {
-            "nao_nulo": _not_null,
-            "faixa": _range,
-            "conjunto": _in_set,
-            "formato": _pattern,
-        }[check.tipo]
+        per_column = _PER_COLUMN.get(check.tipo)
+        if per_column is None:
+            raise QualityError(
+                f"tipo de verificação desconhecido: '{check.tipo}'; use nao_nulo, unico, faixa, conjunto ou formato",
+                operation="run_checks",
+            )
         for col in check.colunas:
             results.append(_result(check, col, per_column(df, check, col)))
     return results

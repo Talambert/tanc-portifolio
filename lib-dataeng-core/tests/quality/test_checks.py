@@ -175,3 +175,71 @@ def test_blocking_failure_raises_and_non_blocking_does_not() -> None:
 
 def test_blocking_that_passes_does_not_raise() -> None:
     raise_if_blocking(run_checks(pd.DataFrame({"a": [1]}), [_check("unico", ["a"], bloqueante=True)]))
+
+
+def test_range_on_empty_object_column_is_vacuous() -> None:
+    df = pd.DataFrame({"v": pd.Series([], dtype="object")})
+    r = _one(df, _check("faixa", ["v"], minimo=0))
+    assert (r.taxa, r.aprovado) == (1.0, True)
+
+
+def test_range_on_all_null_object_column_is_vacuous() -> None:
+    r = _one(pd.DataFrame({"v": pd.Series([None, None], dtype="object")}), _check("faixa", ["v"], minimo=0))
+    assert (r.taxa, r.aprovado) == (1.0, True)
+
+
+def test_range_on_object_column_with_numbers_and_none() -> None:
+    df = pd.DataFrame({"v": pd.Series([1, None, 3, -5], dtype="object")})
+    assert _one(df, _check("faixa", ["v"], minimo=0)).taxa == pytest.approx(2 / 3)
+
+
+def test_range_on_object_column_with_text_errors_without_leaking() -> None:
+    df = pd.DataFrame({"v": pd.Series([1, "abc"], dtype="object")})
+    with pytest.raises(QualityError, match="'v'.*exige coluna numérica") as exc:
+        run_checks(df, [_check("faixa", ["v"], minimo=0)])
+    assert "abc" not in str(exc.value)
+
+
+def test_range_on_boolean_columns_is_execution_error() -> None:
+    for s in (pd.Series([True, False]), pd.Series([True, False], dtype="object")):
+        with pytest.raises(QualityError, match="exige coluna numérica"):
+            run_checks(pd.DataFrame({"v": s}), [_check("faixa", ["v"], minimo=0)])
+
+
+def test_nullable_and_object_dtypes_are_handled() -> None:
+    df = pd.DataFrame(
+        {
+            "i": pd.array([1, None, 1], dtype="Int64"),
+            "s": pd.array(["ab", None, "ab"], dtype="string"),
+            "b": pd.array([True, None, True], dtype="boolean"),
+            "o": pd.Series(["ab", None, "ab"], dtype="object"),
+        }
+    )
+    for col in df.columns:
+        assert _one(df, _check("nao_nulo", [col])).taxa == pytest.approx(2 / 3)
+        assert _one(df, _check("unico", [col])).taxa == pytest.approx(2 / 3)  # nulo não é repetido
+    assert _one(df, _check("faixa", ["i"], minimo=1, maximo=1)).taxa == 1.0
+    assert _one(df, _check("conjunto", ["i"], valores=[1])).taxa == 1.0
+    assert _one(df, _check("conjunto", ["b"], valores=[True])).taxa == 1.0
+    assert _one(df, _check("conjunto", ["s"], valores=["ab"])).taxa == 1.0
+    assert _one(df, _check("formato", ["s"], padrao="ab")).taxa == 1.0
+    assert _one(df, _check("formato", ["o"], padrao="ab")).taxa == 1.0
+    assert _one(df, _check("formato", ["o"], padrao="x")).taxa == 0.0
+
+
+def test_threshold_zero_always_approves() -> None:
+    df = pd.DataFrame({"a": [None, None]})
+    r = _one(df, _check("nao_nulo", ["a"], limiar=0.0))
+    assert (r.taxa, r.aprovado, r.limiar) == (0.0, True, 0.0)
+
+
+def test_unknown_check_type_is_actionable_error() -> None:
+    bogus = QualityCheck.model_construct(tipo="inventada", colunas=["a"], limiar=1.0, bloqueante=False)
+    with pytest.raises(QualityError, match="'inventada'.*nao_nulo"):
+        run_checks(pd.DataFrame({"a": [1]}), [bogus])
+
+
+def test_duplicate_column_names_are_execution_error() -> None:
+    df = pd.DataFrame([[1, 2]], columns=["a", "a"])
+    with pytest.raises(QualityError, match="'a'.*duplicad"):
+        run_checks(df, [_check("nao_nulo", ["a"])])
