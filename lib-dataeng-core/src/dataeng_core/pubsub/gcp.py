@@ -41,6 +41,9 @@ def _api_failure(exc: Exception, what: str) -> str:
         hint = "a chamada excedeu o prazo: tente novamente (as mensagens não confirmadas voltam)"
     else:
         hint = "verifique a conectividade, a cota e o nome da assinatura, e tente novamente"
+    cause = getattr(exc, "cause", None)
+    if name == "RetryError" and cause is not None:
+        shown += f", causa: {type(cause).__name__}"
     return f"{what}: {shown}; {hint}."
 
 
@@ -49,13 +52,18 @@ def _is_deadline(exc: Exception) -> bool:
 
 
 class GcpPubSub:
-    def __init__(self, project: str, *, client: Any = None, rpc_timeout_s: float = 60.0) -> None:
+    def __init__(
+        self, project: str, *, client: Any = None, rpc_timeout_s: float = 60.0, rpc_slack_s: float = 5.0
+    ) -> None:
         if not isinstance(project, str) or not _PROJECT.match(project):
             raise ConfigError("o projeto GCP do Pub/Sub está vazio ou inválido.", operation="GcpPubSub")
         if isinstance(rpc_timeout_s, bool) or not isinstance(rpc_timeout_s, int | float) or rpc_timeout_s <= 0:
             raise ConfigError("rpc_timeout_s deve ser maior que zero.", operation="GcpPubSub")
         self._project = project
+        if isinstance(rpc_slack_s, bool) or not isinstance(rpc_slack_s, int | float) or rpc_slack_s < 0:
+            raise ConfigError("rpc_slack_s não pode ser negativo.", operation="GcpPubSub")
         self._rpc_timeout_s = float(rpc_timeout_s)
+        self._rpc_slack_s = float(rpc_slack_s)
         if client is None:
             try:
                 import google.cloud.pubsub_v1 as pubsub_v1
@@ -101,7 +109,8 @@ class GcpPubSub:
                 operation="pubsub.pull",
             )
         immediate = timeout_s == 0
-        rpc_timeout = _NO_WAIT_RPC_TIMEOUT_S if immediate else float(timeout_s)
+        # folga: o long-poll do servidor pode responder perto de timeout_s; sem ela o cliente estouraria antes
+        rpc_timeout = _NO_WAIT_RPC_TIMEOUT_S if immediate else float(timeout_s) + self._rpc_slack_s
         try:
             response = self._client.pull(
                 subscription=path, max_messages=max_messages, return_immediately=immediate, timeout=rpc_timeout
@@ -133,7 +142,7 @@ class GcpPubSub:
 
     def ack(self, subscription: str, ack_ids: Sequence[str]) -> None:
         path = self._path(subscription, "pubsub.ack")
-        for chunk in self._chunks(ack_ids):
+        for chunk in self._chunks(ack_ids, "pubsub.ack"):
             try:
                 self._client.acknowledge(subscription=path, ack_ids=chunk, timeout=self._rpc_timeout_s)
             except DataEngError:
@@ -145,7 +154,7 @@ class GcpPubSub:
 
     def nack(self, subscription: str, ack_ids: Sequence[str]) -> None:
         path = self._path(subscription, "pubsub.nack")
-        for chunk in self._chunks(ack_ids):
+        for chunk in self._chunks(ack_ids, "pubsub.nack"):
             try:
                 self._client.modify_ack_deadline(
                     subscription=path, ack_ids=chunk, ack_deadline_seconds=0, timeout=self._rpc_timeout_s
@@ -162,6 +171,10 @@ class GcpPubSub:
         return None
 
     @staticmethod
-    def _chunks(ack_ids: Sequence[str]) -> list[list[str]]:
+    def _chunks(ack_ids: Sequence[str], operation: str) -> list[list[str]]:
+        if isinstance(ack_ids, str | bytes):
+            raise PubSubError(
+                "ack_ids deve ser uma lista de ack_ids, não um texto: passe uma lista.", operation=operation
+            )
         ids = list(ack_ids)
         return [ids[i : i + _ACK_CHUNK] for i in range(0, len(ids), _ACK_CHUNK)]

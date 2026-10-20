@@ -18,6 +18,14 @@ def _has_google() -> bool:
         return False
 
 
+def _has_pubsub() -> bool:
+    try:
+        return importlib.util.find_spec("google.cloud.pubsub_v1") is not None
+    except ModuleNotFoundError:
+        return False
+
+
+needs_pubsub = pytest.mark.skipif(not _has_pubsub(), reason="google-cloud-pubsub não instalado (extra [gcp])")
 needs_google = pytest.mark.skipif(not _has_google(), reason="extra [gcp] (google-cloud-*) não instalado")
 
 _missing = [name for name in _REQUIRED_ENV if not os.environ.get(name)]

@@ -6,7 +6,7 @@ import time
 from datetime import UTC, datetime
 
 import pytest
-from tests.pubsub.contract import run_pubsub_contract
+from tests.pubsub.contract import _drain, run_pubsub_contract
 
 from dataeng_core.base.errors import PubSubError
 from dataeng_core.base.params import Environment
@@ -190,3 +190,66 @@ def test_make_pubsub_local_returns_independent_local_pubsub() -> None:
     a = make_pubsub(_env("local"))
     assert isinstance(a, LocalPubSub)
     assert a is not make_pubsub(_env("local"))
+
+
+def test_bare_string_ack_ids_are_rejected() -> None:
+    c = _client()
+    with pytest.raises(PubSubError, match=r"passe uma lista"):
+        c.ack(SUB, "ack-1")
+    with pytest.raises(PubSubError, match=r"passe uma lista"):
+        c.nack(SUB, "ack-1")
+
+
+def test_generated_ids_skip_explicit_local_n_ids() -> None:
+    c = _client()
+    c.publish(SUB, b"a", message_id="local-1")
+    c.publish(SUB, b"b", message_id="local-3")
+    ids = [c.publish(SUB, b"x") for _ in range(3)]
+    assert ids == ["local-2", "local-4", "local-5"]
+
+
+def test_redelivered_come_before_new_and_unacked_head_repeats() -> None:
+    c = _client()
+    c.publish(SUB, b"a")
+    c.publish(SUB, b"b")
+    assert [m.data for m in c.pull(SUB, 1, 0)] == [b"a"]
+    assert [m.data for m in c.pull(SUB, 1, 0)] == [b"a"]  # sem ack: repete a cabeça
+    c.publish(SUB, b"c")
+    assert [m.data for m in c.pull(SUB, 10, 0)] == [b"a", b"b", b"c"]
+
+
+class _EmptyOnceThenMessages:
+    def __init__(self) -> None:
+        self.script: list[list[PubSubMessage]] = [[], [PubSubMessage("m", "a1", b"x", {}, FIXED)], [], []]
+        self.acked: list[str] = []
+        self.timeouts: list[float] = []
+
+    def pull(self, subscription: str, max_messages: int, timeout_s: float) -> list[PubSubMessage]:
+        self.timeouts.append(timeout_s)
+        return self.script.pop(0)
+
+    def ack(self, subscription: str, ack_ids: object) -> None:
+        self.acked.extend(ack_ids)  # type: ignore[arg-type]
+
+
+def test_drain_does_not_stop_at_first_empty_pull() -> None:
+    fake = _EmptyOnceThenMessages()
+    _drain(fake, SUB)  # type: ignore[arg-type]
+    assert fake.acked == ["a1"]
+    assert fake.script == []  # consumiu os 4 pulls: vazio, mensagem, vazio, vazio
+    assert all(t > 0 for t in fake.timeouts)
+
+
+def test_drain_stops_at_iteration_cap_when_never_empty() -> None:
+    class Never:
+        pulls = 0
+
+        def pull(self, subscription: str, max_messages: int, timeout_s: float) -> list[PubSubMessage]:
+            Never.pulls += 1
+            return [PubSubMessage("m", "a", b"x", {}, FIXED)]
+
+        def ack(self, subscription: str, ack_ids: object) -> None:
+            pass
+
+    _drain(Never(), SUB, max_iterations=7)  # type: ignore[arg-type]
+    assert Never.pulls == 7

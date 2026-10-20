@@ -11,6 +11,8 @@ Modelo simples e documentado:
 - Assinatura inexistente: se comporta como fila vazia (`pull` -> `[]`, `backlog` -> 0), sem erro.
 - `pull` em fila vazia devolve `[]` na hora: sem threads, ninguém poderia publicar durante a espera,
   então esperar até `timeout_s` não mudaria o resultado (o tempo gasto é sempre <= `timeout_s`).
+- `pull(max_messages=N)` sem ack repete sempre as N primeiras da fila (a cabeça): mensagens reentregues vêm
+  antes das novas. Quem consome (T19) deve fazer `ack`/`nack` de cada lote antes do próximo `pull`.
 - `backlog` = mensagens pendentes (não entregues + entregues sem ack).
 - Publicar o mesmo `message_id` duas vezes simula entrega duplicada: mesmo `message_id`, `ack_id` diferentes.
 """
@@ -39,6 +41,11 @@ class _Subscription:
     pending: list[_Stored] = field(default_factory=list)
 
 
+def _check_ids(ack_ids: Sequence[str], operation: str) -> None:
+    if isinstance(ack_ids, str | bytes):
+        raise PubSubError("ack_ids deve ser uma lista, não um texto: passe uma lista.", operation=operation)
+
+
 def _check_subscription(subscription: str, operation: str) -> None:
     if not isinstance(subscription, str) or not subscription.strip():
         raise PubSubError(
@@ -52,6 +59,7 @@ class LocalPubSub:
         self._clock = clock or (lambda: datetime.now(UTC))
         self._subs: dict[str, _Subscription] = {}
         self._message_seq = 0
+        self._used_ids: set[str] = set()
         self._ack_seq = 0
 
     def publish(
@@ -69,10 +77,14 @@ class LocalPubSub:
                 operation="pubsub.publish",
             )
         if message_id is None:
-            self._message_seq += 1
-            message_id = f"local-{self._message_seq}"
+            while True:
+                self._message_seq += 1
+                message_id = f"local-{self._message_seq}"
+                if message_id not in self._used_ids:  # não colide com id explícito já publicado
+                    break
         elif not isinstance(message_id, str) or not message_id:
             raise PubSubError("o message_id deve ser um texto não vazio.", operation="pubsub.publish")
+        self._used_ids.add(message_id)
         published = self._clock()
         sub = self._subs.setdefault(subscription, _Subscription())
         sub.pending.append(_Stored(message_id, data, dict(attributes or {}), published))
@@ -110,6 +122,7 @@ class LocalPubSub:
 
     def ack(self, subscription: str, ack_ids: Sequence[str]) -> None:
         _check_subscription(subscription, "pubsub.ack")
+        _check_ids(ack_ids, "pubsub.ack")
         sub = self._subs.get(subscription)
         if sub is None:
             return
@@ -118,6 +131,7 @@ class LocalPubSub:
 
     def nack(self, subscription: str, ack_ids: Sequence[str]) -> None:
         _check_subscription(subscription, "pubsub.nack")
+        _check_ids(ack_ids, "pubsub.nack")
         sub = self._subs.get(subscription)
         if sub is None:
             return

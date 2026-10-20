@@ -10,7 +10,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from tests.gcp_support import hide_google, needs_gcp_credentials, needs_google
+from tests.gcp_support import hide_google, needs_gcp_credentials, needs_pubsub
 from tests.pubsub.contract import run_pubsub_contract
 
 from dataeng_core.base.errors import ConfigError, PubSubError
@@ -71,7 +71,7 @@ def test_pull_calls_client_with_full_path_max_messages_and_timeout() -> None:
     c, fake = _make()
     c.pull("sub-1", 7, 12.5)
     assert fake.calls == [
-        ("pull", {"subscription": FULL, "max_messages": 7, "return_immediately": False, "timeout": 12.5})
+        ("pull", {"subscription": FULL, "max_messages": 7, "return_immediately": False, "timeout": 17.5})
     ]
 
 
@@ -105,14 +105,14 @@ def test_pull_empty_returns_empty_list() -> None:
     assert c.pull("sub-1", 10, 1) == []
 
 
-@needs_google
+@needs_pubsub
 def test_pull_deadline_exceeded_is_empty_not_error() -> None:
     c, fake = _make()
     fake.fail_with = _exc().DeadlineExceeded("504 Deadline Exceeded " + CANARY)
     assert c.pull("sub-1", 10, 1) == []
 
 
-@needs_google
+@needs_pubsub
 def test_pull_api_errors_are_typed_actionable_and_do_not_leak() -> None:
     c, fake = _make()
     fake.fail_with = _exc().PermissionDenied("403 " + CANARY)
@@ -129,7 +129,7 @@ def test_pull_api_errors_are_typed_actionable_and_do_not_leak() -> None:
         assert err.value.__cause__ is not None
 
 
-@needs_google
+@needs_pubsub
 def test_ack_and_nack_errors_are_typed_and_do_not_leak() -> None:
     c, fake = _make()
     fake.fail_with = _exc().PermissionDenied("403 " + CANARY)
@@ -245,7 +245,7 @@ def test_make_pubsub_gcp_without_extra_gives_actionable_error(monkeypatch: pytes
         make_pubsub(_env())
 
 
-@needs_google
+@needs_pubsub
 def test_make_pubsub_gcp_returns_gcp_pubsub(monkeypatch: pytest.MonkeyPatch) -> None:
     from google.cloud import pubsub_v1
 
@@ -255,7 +255,7 @@ def test_make_pubsub_gcp_returns_gcp_pubsub(monkeypatch: pytest.MonkeyPatch) -> 
     assert client.pull("sub-1", 1, 0) == []
 
 
-@needs_google
+@needs_pubsub
 def test_client_creation_failure_does_not_leak_original_message(monkeypatch: pytest.MonkeyPatch) -> None:
     from google.cloud import pubsub_v1
 
@@ -301,3 +301,33 @@ def test_gcp_pubsub_passes_contract_on_real_gcp() -> None:
         publisher.publish(topic_path, data).result(timeout=30)
 
     run_pubsub_contract(GcpPubSub(project), publish, subscription, redelivery_wait_s=60.0, can_duplicate=False)
+
+
+def test_pull_rpc_deadline_includes_configurable_slack() -> None:
+    fake = FakeSubscriber()
+    GcpPubSub(PROJECT, client=fake, rpc_slack_s=2).pull("sub-1", 1, 10)
+    GcpPubSub(PROJECT, client=fake).pull("sub-1", 1, 10)  # padrão: 5 s
+    assert [kw["timeout"] for _, kw in fake.calls] == [12.0, 15.0]
+    with pytest.raises(ConfigError, match=r"rpc_slack_s"):
+        GcpPubSub(PROJECT, client=fake, rpc_slack_s=-1)
+
+
+@needs_pubsub
+def test_retry_error_names_cause_type_only_and_invalid_argument_is_typed() -> None:
+    c, fake = _make()
+    fake.fail_with = _exc().RetryError("esgotou " + CANARY, cause=_exc().ServiceUnavailable("503 " + CANARY))
+    with pytest.raises(PubSubError, match=r"RetryError.*causa: ServiceUnavailable") as r:
+        c.pull("sub-1", 1, 1)
+    fake.fail_with = _exc().InvalidArgument("400 " + CANARY)
+    with pytest.raises(PubSubError, match=r"InvalidArgument \(HTTP 400\)") as i:
+        c.ack("sub-1", ["x"])
+    assert CANARY not in str(r.value) + str(i.value)
+
+
+def test_bare_string_ack_ids_are_rejected() -> None:
+    c, fake = _make()
+    with pytest.raises(PubSubError, match=r"passe uma lista"):
+        c.ack("sub-1", "ack-123")
+    with pytest.raises(PubSubError, match=r"passe uma lista"):
+        c.nack("sub-1", "ack-123")
+    assert fake.calls == []

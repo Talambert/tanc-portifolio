@@ -11,12 +11,26 @@ from dataeng_core.pubsub.base import PubSubClient, PubSubMessage
 Publish = Callable[..., object]  # publish(data: bytes, message_id: str | None = None)
 
 
-def _drain(client: PubSubClient, subscription: str, attempts: int = 20) -> None:
-    for _ in range(attempts):
-        got = client.pull(subscription, 100, 0)
-        if not got:
-            return
-        client.ack(subscription, [m.ack_id for m in got])
+def _drain(
+    client: PubSubClient,
+    subscription: str,
+    *,
+    timeout_s: float = 2.0,
+    max_empty: int = 2,
+    max_iterations: int = 50,
+) -> None:
+    """Esvazia a assinatura: para só após `max_empty` pulls vazios seguidos (o serviço real pode devolver
+    vazio havendo mensagens) e nunca passa de `max_iterations` pulls."""
+    empty = 0
+    for _ in range(max_iterations):
+        got = client.pull(subscription, 100, timeout_s)
+        if got:
+            empty = 0
+            client.ack(subscription, [m.ack_id for m in got])
+        else:
+            empty += 1
+            if empty >= max_empty:
+                return
 
 
 def _pull_until(
@@ -41,21 +55,23 @@ def run_pubsub_contract(
     redelivery_wait_s: float = 0.0,
     can_duplicate: bool = True,
     slack_s: float = 5.0,
+    poll_timeout_s: float = 2.0,
 ) -> None:
     """Executa o contrato numa assinatura que o teste controla (e que esvazia no início e no fim).
 
     `publish(data, message_id=None)` publica na assinatura. `redelivery_wait_s`: quanto esperar pela volta de
     uma mensagem sem ack/nack (0 no local; no GCP real use mais que o prazo de ack da assinatura).
     `can_duplicate=False` pula a duplicata (o GCP real atribui o `message_id`). `slack_s`: folga de rede.
+    `poll_timeout_s`: espera dos pulls de drenagem e de fila vazia (>0 no GCP real).
     """
     run = uuid.uuid4().hex[:8].encode()
     try:
-        _drain(client, subscription)
+        _drain(client, subscription, timeout_s=poll_timeout_s)
 
         # fila vazia: devolve [] sem esperar além do timeout (mais a folga de rede)
         started = time.monotonic()
-        assert client.pull(subscription, 10, 1) == []
-        assert time.monotonic() - started <= 1 + slack_s
+        assert client.pull(subscription, 10, poll_timeout_s) == []
+        assert time.monotonic() - started <= poll_timeout_s + slack_s
         backlog = client.backlog(subscription)
         assert backlog is None or backlog == 0
 
@@ -65,7 +81,7 @@ def run_pubsub_contract(
         first = client.pull(subscription, 2, 1)
         assert 1 <= len(first) <= 2
         client.ack(subscription, [m.ack_id for m in first])
-        _drain(client, subscription)
+        _drain(client, subscription, timeout_s=poll_timeout_s)
 
         # sem ack volta
         payload = run + b"-sem-ack"
@@ -91,7 +107,7 @@ def run_pubsub_contract(
         again = _pull_until(client, subscription, payload, max(redelivery_wait_s, 5.0))
         assert again is not None, "mensagem com nack deveria voltar"
         client.ack(subscription, [again.ack_id])
-        _drain(client, subscription)
+        _drain(client, subscription, timeout_s=poll_timeout_s)
 
         # backlog conta as pendentes (None = a implementação não sabe medir)
         backlog = client.backlog(subscription)
@@ -104,7 +120,7 @@ def run_pubsub_contract(
             assert client.backlog(subscription) == 2  # entregue e não confirmada continua pendente
             client.ack(subscription, [got[0].ack_id])
             assert client.backlog(subscription) == 1
-            _drain(client, subscription)
+            _drain(client, subscription, timeout_s=poll_timeout_s)
             assert client.backlog(subscription) == 0
 
         # duplicata: mesmo message_id, ack_id diferentes
@@ -119,4 +135,4 @@ def run_pubsub_contract(
             assert same[0].ack_id != same[1].ack_id
             client.ack(subscription, [m.ack_id for m in got])
     finally:
-        _drain(client, subscription)
+        _drain(client, subscription, timeout_s=poll_timeout_s)
