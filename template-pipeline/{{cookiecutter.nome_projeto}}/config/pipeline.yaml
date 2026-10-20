@@ -69,6 +69,42 @@ etapas:
           - {coluna: id, regra: nao_nulo}
     qualidade:
       - nao_nulo: [id]
+{%- elif origem == "pubsub" %}
+  - id: ingere_eventos
+    tipo: ingestao
+    motor: {{ "dataproc" if cookiecutter.motor_ingestao == "dataproc" else "cloud_run" }}
+    origem:
+      tipo: pubsub
+      # EXEMPLO: troque pela assinatura real (nome curto ou projects/<projeto>/subscriptions/<nome>).
+      # Um pull em lote por execução; o agendamento da DAG repete o lote. Confirma (ack) só depois de gravar.
+      assinatura: "projects/${projeto_gcp}/subscriptions/eventos-sub"
+      max_mensagens: 1000
+      tempo_maximo_s: 60
+      formato: json
+      dedupe_por: message_id
+      schema: schemas/origem_eventos.yaml
+    destino:
+      bronze: "gs://${bucket_bronze}/bronze/eventos/"
+      tabela: "${dataset_silver}.eventos"
+      schema: schemas/destino_eventos.yaml
+{%- if cookiecutter.modo_carga == "merge" %}
+      modo_carga: merge
+      chaves_merge: [message_id]
+{%- else %}
+      # A origem pubsub não aceita overwrite_particao (cada lote apagaria os anteriores):
+      # `append` grava por merge em message_id (deduplica entregas repetidas e reexecuções).
+      modo_carga: append
+{%- endif %}
+      particao: _ingestion_date
+      ddl: [sql/ddl/silver_eventos.sql]
+    transformacao:
+      - tipar:
+          id: {tipo: inteiro}
+          valor: {tipo: decimal}
+      - rejeitar_se:
+          - {coluna: id, regra: nao_nulo}
+    qualidade:
+      - nao_nulo: [id]
 {%- endif %}
 {%- endfor %}
 

@@ -22,7 +22,7 @@ V = {
     "indice_artifact_registry": {{ cookiecutter.indice_artifact_registry | tojson }},
 }
 
-SUPORTADAS = ("arquivo", "api")
+SUPORTADAS = ("arquivo", "api", "pubsub")
 _CRON_CAMPO = r"[A-Za-z0-9*/,?-]+"
 _ALIASES = "yearly|annually|monthly|weekly|daily|midnight|hourly|once"
 _URL = r"https://[A-Za-z0-9._/-]+"
@@ -53,9 +53,7 @@ def erros() -> list[str]:
     if "" in origens:
         problemas.append(f"origens = {V['origens']!r} inválido; informe uma ou mais entre {', '.join(SUPORTADAS)}, separadas por vírgula.")
     for origem in origens:
-        if origem == "pubsub":
-            problemas.append("origens: a origem 'pubsub' chega na Tarefa 19; por enquanto use 'arquivo' e/ou 'api'.")
-        elif origem and origem not in SUPORTADAS:
+        if origem and origem not in SUPORTADAS:
             problemas.append(f"origens: origem {origem!r} desconhecida; valores aceitos: {', '.join(SUPORTADAS)}.")
     if len(set(origens)) != len(origens):
         problemas.append(f"origens = {V['origens']!r} tem origens repetidas; cite cada origem uma vez.")

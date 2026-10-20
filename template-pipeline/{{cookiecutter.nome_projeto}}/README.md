@@ -15,6 +15,14 @@ pytest
 {% if "arquivo" in cookiecutter.origens %}
 O exemplo funciona sem editar nada: lê `data/amostra.csv` (5 linhas sintéticas) e grava em `.local/` (DuckDB). Repetir a execução com o mesmo `--run-id` não duplica linhas.
 {% endif %}
+{%- if "pubsub" in cookiecutter.origens %}
+## Origem Pub/Sub
+
+- Cada execução faz UM pull em lote (até `max_mensagens`, esperando até `tempo_maximo_s`); o agendamento da DAG repete o lote. Grava as mensagens cruas no bronze, carrega a silver e a quarentena e SÓ ENTÃO confirma (ack). Se algo falhar antes, nada é confirmado e as mensagens voltam.
+- A silver tem uma linha por `message_id` (entrega "pelo menos uma vez"); mensagens com JSON inválido vão para `eventos_rejeitados` e são confirmadas. O backlog restante vai para a tabela de controle.
+- **Limitação local:** `dataeng run local` usa um Pub/Sub em memória vazio (não há como publicar pela linha de comando), então a etapa `ingere_eventos` termina ok com 0 linhas. O teste `tests/test_local_run.py` publica mensagens sintéticas num `LocalPubSub` e o injeta em `build_context` para exercitar a ingestão.
+- Troque a `assinatura` de exemplo pela real; no GCP o backlog fica nulo (exige Cloud Monitoring).
+{% endif %}
 ## O que editar
 
 - `config/pipeline.yaml`: origem, schema, transformação, qualidade e modo de carga. Parâmetros nos YAML e no SQL são `${nome}`.

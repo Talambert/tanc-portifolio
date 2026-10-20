@@ -1,0 +1,8 @@
+# Colunas da tabela silver de eventos. `message_id` é obrigatória: é a chave de deduplicação
+# (entrega "pelo menos uma vez" do Pub/Sub). As colunas de controle são acrescentadas pela biblioteca.
+colunas:
+  - {nome: message_id, tipo: texto, obrigatoria: true}
+  - {nome: publish_time, tipo: texto}
+  - {nome: id, tipo: inteiro, obrigatoria: true}
+  - {nome: nome, tipo: texto}
+  - {nome: valor, tipo: decimal}

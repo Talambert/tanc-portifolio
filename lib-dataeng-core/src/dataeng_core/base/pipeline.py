@@ -291,6 +291,17 @@ class IngestaoStep(_StepBase):
     transformacao: list[TransformOp] = Field(default_factory=list)
     qualidade: QualityChecks = Field(default_factory=list)
 
+    @model_validator(mode="after")
+    def _check_pubsub_load(self) -> Self:
+        # Cada lote do Pub/Sub traz só parte das mensagens do dia: sobrescrever a partição apagaria os lotes
+        # anteriores. Com `append` a silver faz merge por `message_id` (deduplica entre execuções).
+        if self.origem.tipo == "pubsub" and self.destino.modo_carga == "overwrite_particao":
+            raise ValueError(
+                "a origem 'pubsub' não aceita modo_carga 'overwrite_particao' (cada lote sobrescreveria os "
+                "anteriores); use 'append' (merge por message_id) ou 'merge' com `chaves_merge`"
+            )
+        return self
+
 
 class SqlStep(_StepBase):
     tipo: Literal["sql"]

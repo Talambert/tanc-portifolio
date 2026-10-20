@@ -26,8 +26,11 @@ def main() -> None:
         remove("data", "schemas/origem.yaml", "sql/ddl/silver_registros_arquivo.sql")
     if "api" not in ORIGENS:
         remove("sql/ddl/silver_registros_api.sql")
-    # O teste de execução local lê a amostra; com a origem `api` ele faria chamadas de rede.
-    if ORIGENS != ["arquivo"]:
+    if "pubsub" not in ORIGENS:
+        remove("schemas/origem_eventos.yaml", "schemas/destino_eventos.yaml", "sql/ddl/silver_eventos.sql")
+    # O teste de execução local roda o pipeline inteiro; com a origem `api` ele faria chamadas de rede.
+    # (`arquivo` lê a amostra; `pubsub` usa o LocalPubSub em memória, alimentado pelo próprio teste.)
+    if "api" in ORIGENS:
         remove("tests/test_local_run.py")
 
     # DAG do motor não escolhido. Com um só motor, a DAG se chama dags/pipeline.py.

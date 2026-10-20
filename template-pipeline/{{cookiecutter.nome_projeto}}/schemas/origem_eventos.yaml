@@ -1,0 +1,6 @@
+# Campos do JSON das mensagens do Pub/Sub (tudo texto; objetos aninhados viram `pai__filho`).
+# `message_id`, `publish_time` e `attributes` são acrescentados pela biblioteca.
+colunas:
+  - {nome: id, tipo: texto, obrigatoria: true}
+  - {nome: nome, tipo: texto}
+  - {nome: valor, tipo: texto}

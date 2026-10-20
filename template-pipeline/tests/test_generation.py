@@ -229,7 +229,7 @@ def test_environments_use_fictitious_values_and_api_uses_secret_env_name(bake: B
     assert "segredo_env: API_TOKEN" in yaml_text
 
 
-@pytest.mark.parametrize("origem", ["arquivo", "api"])
+@pytest.mark.parametrize("origem", ["arquivo", "api", "pubsub", "arquivo,pubsub"])
 @pytest.mark.parametrize("motor", ["cloud_run", "dataproc", "ambos"])
 @pytest.mark.parametrize("modo", ["append", "overwrite_particao", "merge"])
 def test_matrix_origem_motor_modo_carga(bake: Bake, origem: str, motor: str, modo: str) -> None:
@@ -238,12 +238,61 @@ def test_matrix_origem_motor_modo_carga(bake: Bake, origem: str, motor: str, mod
     if motor == "ambos":
         _validate_and_plan(root, "config/pipeline_dataproc.yaml")
     text = (root / "config/pipeline.yaml").read_text(encoding="utf-8")
-    assert f"modo_carga: {modo}" in text
-    assert ("chaves_merge: [id]" in text) == (modo == "merge")
+    origens = origem.split(",")
+    if origens != ["pubsub"]:
+        assert f"modo_carga: {modo}" in text
+    assert ("chaves_merge: [id]" in text) == (modo == "merge" and origens != ["pubsub"])
+    if "pubsub" in origens:
+        # pubsub não aceita overwrite_particao: append (merge por message_id) ou merge por message_id
+        assert "tipo: pubsub" in text and "dedupe_por: message_id" in text
+        assert ("chaves_merge: [message_id]" in text) == (modo == "merge")
+        assert ("modo_carga: merge" if modo == "merge" else "modo_carga: append") in text
+
+
+def test_pubsub_origin_generates_its_blocks_and_local_run_test(bake: Bake) -> None:
+    root = bake(origens="pubsub")
+    files = _rel(root)
+    assert {"schemas/origem_eventos.yaml", "schemas/destino_eventos.yaml", "sql/ddl/silver_eventos.sql"} <= files
+    assert "data/amostra.csv" not in files and "schemas/origem.yaml" not in files
+    assert "sql/ddl/silver_registros_arquivo.sql" not in files and "sql/ddl/silver_registros_api.sql" not in files
+    assert "tests/test_local_run.py" in files  # pubsub roda local com o LocalPubSub
+    text = (root / "config/pipeline.yaml").read_text(encoding="utf-8")
+    assert 'assinatura: "projects/${projeto_gcp}/subscriptions/eventos-sub"' in text
+    assert "registros_arquivo" not in text and "registros_api" not in text
+    assert "message_id" in (root / "schemas/destino_eventos.yaml").read_text(encoding="utf-8")
+    both = _rel(bake(origens="arquivo,pubsub", nome_projeto="arquivo-e-eventos"))
+    assert {"data/amostra.csv", "schemas/origem.yaml", "schemas/destino_eventos.yaml", "tests/test_local_run.py"} <= both
+    without = _rel(bake(origens="arquivo", nome_projeto="sem-eventos"))
+    assert not any("eventos" in f for f in without)
+    with_api = _rel(bake(origens="api,pubsub", nome_projeto="api-e-eventos"))
+    assert "tests/test_local_run.py" not in with_api  # a origem api faria rede
+
+
+def test_generated_pubsub_project_runs_local_with_empty_queue(bake: Bake) -> None:
+    root = bake(origens="pubsub")
+    run = ["run", "local", "--config", str(root / "config/pipeline.yaml"), "--run-id", "20260301T060000-aaaaaa"]
+    assert cli.main(run) == 0  # fila local vazia: ok com 0 linhas (limitação documentada no README)
+    db = next((root / ".local").rglob("*.duckdb"))
+    con = duckdb.connect(str(db), read_only=True)
+    try:
+        control = con.execute("SELECT etapa, status, linhas_lidas, backlog FROM silver._controle_execucoes").fetchall()
+    finally:
+        con.close()
+    assert control == [("ingere_eventos", "ok", 0, 0)]
+
+
+@pytest.mark.parametrize("origens", ["pubsub", "arquivo,pubsub"])
+def test_generated_pubsub_project_own_tests_pass(bake: Bake, origens: str) -> None:
+    root = bake(origens=origens, modo_carga="merge")
+    proc = _run_project_tests(root)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    # 4 de configuração (configs, validate-config, plan, DAG) + run local + ingestão com o LocalPubSub
+    assert "6 passed" in proc.stdout, proc.stdout
+    assert "skipped" not in proc.stdout
 
 
 INVALID = [
-    ("origens", "pubsub", "Tarefa 19"),
+    ("origens", "pubsub,kafka", "desconhecida"),
     ("origens", "", "origens"),
     ("origens", "arquivo,arquivo", "repetidas"),
     ("origens", 'arq"uivo', "desconhecida"),

@@ -12,7 +12,7 @@ from dataeng_core.base.errors import ConfigError
 from dataeng_core.base.params import Environment
 from dataeng_core.base.pipeline import Pipeline
 from dataeng_core.base.runtime import new_run_id
-from dataeng_core.pubsub.base import PubSubClient
+from dataeng_core.pubsub.base import PubSubClient, make_pubsub
 from dataeng_core.quality.checks import CheckResult
 from dataeng_core.storage.base import Storage, make_storage
 from dataeng_core.warehouse.base import Warehouse, make_warehouse
@@ -81,6 +81,10 @@ def resolve_ingestion_date(run_id: str, ingestion_date: dt.date | None) -> dt.da
     )
 
 
+def _uses_pubsub(pipeline: Pipeline) -> bool:
+    return any(getattr(getattr(s, "origem", None), "tipo", None) == "pubsub" for s in pipeline.etapas)
+
+
 def build_context(
     pipeline: Pipeline,
     env: Environment,
@@ -88,6 +92,7 @@ def build_context(
     project_root: Path,
     run_id: str | None = None,
     ingestion_date: dt.date | None = None,
+    pubsub: PubSubClient | None = None,
 ) -> StepContext:
     """Monta o contexto: storage e warehouse do ambiente, `run_id` novo (ou o informado) e parâmetros.
 
@@ -99,6 +104,11 @@ def build_context(
     (formato de `new_run_id`, `AAAAMMDDTHHMMSS-xxxxxx`), ou informe `ingestion_date`. O run_id nativo do
     Airflow (ex.: `scheduled__2026-01-01T06:00:00+00:00`) é recusado por `validate_run_id`; a DAG deve
     mapeá-lo para esse formato (ou passar `ingestion_date` explícita).
+
+    Cliente Pub/Sub: o `pubsub` informado (útil em testes, com um `LocalPubSub` já alimentado); senão,
+    `make_pubsub(env)` SÓ quando alguma etapa usa a origem `pubsub` (nada de GCP importado sem
+    necessidade). No modo local, `make_pubsub` cria uma fila em memória vazia: a etapa termina `ok` com
+    0 linhas.
     """
     root = Path(project_root).resolve()
     rid = validate_run_id(run_id) if run_id is not None else new_run_id()
@@ -111,7 +121,7 @@ def build_context(
         env=env,
         storage=make_storage(env),
         warehouse=make_warehouse(env),
-        pubsub=None,
+        pubsub=pubsub if pubsub is not None else (make_pubsub(env) if _uses_pubsub(pipeline) else None),
         run_id=rid,
         params=params,
         project_root=root,

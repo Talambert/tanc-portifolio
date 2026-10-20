@@ -1,4 +1,4 @@
-"""Etapa `ingestao` (origens `arquivo` e `api`).
+"""Etapa `ingestao` (origens `arquivo`, `api` e `pubsub`).
 
 Fluxo: lê a origem → grava o bronze (arquivo + manifesto) → interpreta → transforma → carrega a silver
 com as colunas de controle → grava a quarentena (`<tabela>_rejeitados`) → roda a qualidade →
@@ -29,6 +29,9 @@ Limitações conhecidas:
 - se a reexecução não tiver rejeitadas, as rejeitadas antigas com a mesma chave continuam na quarentena.
 
 Mensagens de falha nunca trazem valores dos dados; o segredo da API passa por `redact`.
+
+A origem `pubsub` (puxar → bronze → silver/quarentena → `ack`, dedupe por `message_id`) fica em
+`steps/_pubsub_ingest.py`, que reaproveita o bronze e a carga daqui.
 """
 
 from __future__ import annotations
@@ -47,7 +50,7 @@ import pandas as pd
 import requests
 
 from dataeng_core.base.errors import ConfigError, DataEngError, SourceError
-from dataeng_core.base.pipeline import ApiOrigem, ArquivoOrigem, Destino, IngestaoStep, Step
+from dataeng_core.base.pipeline import ApiOrigem, ArquivoOrigem, Destino, IngestaoStep, PubSubOrigem, Step
 from dataeng_core.base.runtime import get_logger, redact
 from dataeng_core.base.schema import SchemaSpec, load_schema
 from dataeng_core.quality.checks import CheckResult, raise_if_blocking, run_checks
@@ -90,6 +93,8 @@ class _Progress:
     written: int = 0
     rejected: int = 0
     quality: list[CheckResult] = field(default_factory=list)
+    backlog: int | None = None
+    note: str = ""  # acrescentado ao detalhe em caso de falha (ex.: mensagens devolvidas com nack)
 
 
 # --------------------------------------------------------------------------- utilitários
@@ -309,7 +314,9 @@ def _api_frame(records: list[dict[str, Any]], schema: SchemaSpec | None, uri: st
 # ------------------------------------------------------------------------------- bronze
 
 
-def _write_bronze(ctx: StepContext, step: IngestaoStep, day: dt.date, name: str, data: bytes) -> str:
+def _write_bronze(
+    ctx: StepContext, step: IngestaoStep, day: dt.date, name: str, data: bytes, manifest_name: str = MANIFEST_NAME
+) -> str:
     """Grava o arquivo e depois o manifesto (tamanho e SHA-256); devolve a URI do arquivo."""
     folder = f"{step.destino.bronze.rstrip('/')}/ingestion_date={day.isoformat()}/run_id={ctx.run_id}"
     uri = f"{folder}/{name}"
@@ -322,7 +329,7 @@ def _write_bronze(ctx: StepContext, step: IngestaoStep, day: dt.date, name: str,
         "etapa": step.id,
         "gravado_em": dt.datetime.now(dt.UTC).isoformat(),
     }
-    ctx.storage.write(f"{folder}/{MANIFEST_NAME}", json.dumps(manifest, ensure_ascii=False, indent=2).encode())
+    ctx.storage.write(f"{folder}/{manifest_name}", json.dumps(manifest, ensure_ascii=False, indent=2).encode())
     return uri
 
 
@@ -402,13 +409,61 @@ def _run_sql_files(ctx: StepContext, paths: list[Path], params: dict[str, str], 
             ctx.warehouse.run_sql(statements)
 
 
+def _load_outputs(
+    step: IngestaoStep,
+    ctx: StepContext,
+    prog: _Progress,
+    *,
+    table: str,
+    silver: pd.DataFrame,
+    load_args: dict[str, Any],
+    quarantine_table: str,
+    quarantine: pd.DataFrame,
+    quarantine_args: dict[str, Any],
+    params: dict[str, str],
+) -> list[str]:
+    """DDL → silver → quarentena → qualidade → `dml_pos_carga` (comum a todas as origens); devolve notas."""
+    destino = step.destino
+    prog.phase = "ddl"
+    _run_sql_files(ctx, destino.ddl, params, ddl=True)
+
+    prog.phase = "carga_silver"
+    if len(silver) > 0:
+        prog.written = ctx.warehouse.load(table, silver, **load_args)
+    else:
+        log.warning(f"etapa '{step.id}': entrada sem linhas válidas; a tabela {table} não foi alterada")
+
+    prog.phase = "quarentena"
+    if len(quarantine) > 0:
+        ctx.warehouse.load(quarantine_table, quarantine, **quarantine_args)
+
+    prog.phase = "qualidade"
+    if step.qualidade:
+        prog.quality = run_checks(silver, step.qualidade)
+        raise_if_blocking(prog.quality)
+
+    prog.phase = "dml_pos_carga"
+    notes: list[str] = []
+    if destino.dml_pos_carga and prog.written == 0 and not ctx.warehouse.table_exists(table):
+        notes.append(f"dml_pos_carga não executado: nada foi carregado e a tabela {table} ainda não existe")
+        log.warning(f"etapa '{step.id}': {notes[-1]}")
+    else:
+        _run_sql_files(ctx, destino.dml_pos_carga, params, ddl=False)
+    return notes
+
+
 # ------------------------------------------------------------------------------ etapa
 
 
 def _ingest(step: IngestaoStep, ctx: StepContext, prog: _Progress) -> StepResult:
     origem, destino = step.origem, step.destino
+    if isinstance(origem, PubSubOrigem):
+        # importação tardia: o módulo do Pub/Sub importa os utilitários deste módulo
+        from dataeng_core.steps._pubsub_ingest import ingest_pubsub
+
+        return ingest_pubsub(step, origem, ctx, prog)
     if not isinstance(origem, ArquivoOrigem | ApiOrigem):
-        raise ConfigError(f"a origem '{origem.tipo}' ainda não é suportada pela etapa ingestao", operation="ingestao")
+        raise ConfigError(f"a origem '{origem.tipo}' não é suportada pela etapa ingestao", operation="ingestao")
     table, quarantine_table = _table_names(destino)
     load_args = _load_args(destino)
     day = ingestion_date_of(ctx)
@@ -446,33 +501,18 @@ def _ingest(step: IngestaoStep, ctx: StepContext, prog: _Progress) -> StepResult
     sources = tr.rows[SOURCE_FILE] if SOURCE_FILE in tr.rows.columns else pd.Series([uri] * len(tr.rows))
     sources = sources.map(lambda v: _plain(v) or uri)
     silver = _add_control(_conform(tr.rows, dest_schema), sources, ctx, day, loaded_at)
-
-    prog.phase = "ddl"
-    _run_sql_files(ctx, destino.ddl, params, ddl=True)
-
-    prog.phase = "carga_silver"
-    if len(silver) > 0:
-        prog.written = ctx.warehouse.load(table, silver, **load_args)
-    else:
-        log.warning(f"etapa '{step.id}': entrada sem linhas válidas; a tabela {table} não foi alterada")
-
-    prog.phase = "quarentena"
-    if len(rejected) > 0:
-        q = _add_control(rejected, rejected_sources, ctx, day, loaded_at)
-        ctx.warehouse.load(quarantine_table, q, mode="overwrite_partition", partition_column=_quarantine_key(destino))
-
-    prog.phase = "qualidade"
-    if step.qualidade:
-        prog.quality = run_checks(silver, step.qualidade)
-        raise_if_blocking(prog.quality)
-
-    prog.phase = "dml_pos_carga"
-    notes: list[str] = []
-    if destino.dml_pos_carga and prog.written == 0 and not ctx.warehouse.table_exists(table):
-        notes.append(f"dml_pos_carga não executado: nada foi carregado e a tabela {table} ainda não existe")
-        log.warning(f"etapa '{step.id}': {notes[-1]}")
-    else:
-        _run_sql_files(ctx, destino.dml_pos_carga, params, ddl=False)
+    notes = _load_outputs(
+        step,
+        ctx,
+        prog,
+        table=table,
+        silver=silver,
+        load_args=load_args,
+        quarantine_table=quarantine_table,
+        quarantine=_add_control(rejected, rejected_sources, ctx, day, loaded_at),
+        quarantine_args={"mode": "overwrite_partition", "partition_column": _quarantine_key(destino)},
+        params=params,
+    )
 
     if prog.read == 0:
         detail = f"entrada vazia (0 linhas): nada foi carregado em {table}"
@@ -505,6 +545,8 @@ def run_ingestao(step: Step, ctx: StepContext) -> StepResult:
     except Exception as exc:  # nunca deixar exceção crua; a mensagem dela pode conter valores dos dados
         log_unexpected(step.id, exc, secrets, where=f" na fase '{prog.phase}'")
         detail = f"falha na fase '{prog.phase}': erro inesperado ({type(exc).__name__}); veja o log"
+    if prog.note:
+        detail = f"{detail}; {prog.note}"
     detail = redact(detail, secrets)
     return StepResult(
         step.id,
@@ -512,6 +554,7 @@ def run_ingestao(step: Step, ctx: StepContext) -> StepResult:
         rows_read=prog.read,
         rows_written=prog.written,
         rows_rejected=prog.rejected,
+        backlog=prog.backlog,
         quality=prog.quality,
         detail=detail,
     )
