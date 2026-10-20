@@ -31,8 +31,7 @@ def make_project(
     """Cria o projeto em `root` e devolve o caminho de `config/pipeline.yaml`.
 
     Etapas: `ingere2` (declarada primeiro, depende de `ingere`), `ingere` (com `dml_pos_carga` = sql/marca.sql)
-    e, com `with_sql_step`, `resumo` (tipo sql, usa o mesmo arquivo; o executor `sql` só existe a partir da T20,
-    então só serve para validar, planejar e recusar).
+    e, com `with_sql_step`, `resumo` (tipo sql, depende de `ingere2`, usa o mesmo arquivo).
     """
     write_project(root)
     (root / "config" / "ambientes").mkdir(parents=True, exist_ok=True)

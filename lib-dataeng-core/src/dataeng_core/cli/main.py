@@ -49,8 +49,10 @@ def _render_params(pipeline: Pipeline, env: Environment, run_id: str) -> dict[st
     return {**env.params(), **pipeline.parametros, "run_id": run_id, "ingestion_date": day}
 
 
-def _rendered(root: Path, rel: Path, params: dict[str, str]) -> str:
-    """SQL renderizado e validado; parâmetro indefinido ou sintaxe inválida levanta `SqlError`."""
+def _rendered(root: Path, rel: Path, params: dict[str, str]) -> tuple[str, list[str]]:
+    """SQL renderizado e validado, com os avisos de idempotência (já citam arquivo e linha).
+
+    Parâmetro indefinido ou sintaxe inválida levanta `SqlError` com arquivo e linha. Nada é executado."""
     source = rel.as_posix()
     try:
         text = (root / rel).read_text(encoding="utf-8")
@@ -59,9 +61,7 @@ def _rendered(root: Path, rel: Path, params: dict[str, str]) -> str:
             f"não foi possível ler o arquivo SQL {source} ({type(exc).__name__})", operation="cli"
         ) from exc
     sql = render_sql(text, params, source=source)
-    for warning in validate_sql(sql, source=source):
-        print(f"aviso: {source}: {warning}")
-    return sql
+    return sql, validate_sql(sql, source=source)
 
 
 def _run_id_of(value: str | None) -> str:
@@ -77,7 +77,8 @@ def _cmd_validate(args: argparse.Namespace) -> int:
         for step in pipeline.ordered_steps():
             secrets.extend(step_secrets(step))
             for _role, rel in _sql_files(step):
-                _rendered(root, rel, params)
+                for warning in _rendered(root, rel, params)[1]:
+                    print(f"aviso: {warning}")
         n = len(pipeline.etapas)
         print(f"Configuração válida: pipeline '{pipeline.nome}', {n} etapas, ambiente '{args.ambiente}'.")
         return 0
@@ -96,7 +97,9 @@ def _cmd_plan(args: argparse.Namespace) -> int:
             lines = [f"{number}. {step.id}  tipo={step.tipo}  motor={step.motor or 'bigquery'}{deps}"]
             for role, rel in _sql_files(step):
                 lines.append(f"   SQL ({role}) {rel.as_posix()}:")
-                lines += [f"     {line}" for line in _rendered(root, rel, params).rstrip().splitlines()]
+                sql, warnings = _rendered(root, rel, params)
+                lines += [f"     {line}" for line in sql.rstrip().splitlines()]
+                lines += [f"   aviso: {warning}" for warning in warnings]
             blocks.append("\n".join(lines))
         print(f"Plano do pipeline '{pipeline.nome}' (ambiente '{args.ambiente}'), em ordem de execução:")
         print("\n".join(blocks))
