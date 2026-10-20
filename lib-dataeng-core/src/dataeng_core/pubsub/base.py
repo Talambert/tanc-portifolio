@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol
 
+from dataeng_core.base.params import Environment
+
 
 @dataclass
 class PubSubMessage:
@@ -27,3 +29,14 @@ class PubSubClient(Protocol):
     def nack(self, subscription: str, ack_ids: Sequence[str]) -> None: ...
 
     def backlog(self, subscription: str) -> int | None: ...
+
+
+def make_pubsub(env: Environment) -> PubSubClient:
+    """`LocalPubSub` (em memória, novo a cada chamada) em modo local; `GcpPubSub` em `gcp` (exige o extra `[gcp]`)."""
+    if env.modo == "local":
+        from dataeng_core.pubsub.local import LocalPubSub
+
+        return LocalPubSub()
+    from dataeng_core.pubsub.gcp import GcpPubSub
+
+    return GcpPubSub(env.projeto_gcp)
