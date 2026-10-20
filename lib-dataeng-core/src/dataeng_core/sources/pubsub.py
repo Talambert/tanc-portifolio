@@ -13,10 +13,11 @@ Linhas (`records`), todas em texto, como nas outras origens (a tipagem é feita 
 Mensagens inválidas vão para `rejected` (`message_id`, `_linha_original`, `_motivo`) e seu `ack_id`
 TAMBÉM entra em `ack_ids`: depois de quarentenadas são confirmadas, para não voltarem para sempre.
 `_linha_original` é um JSON com os metadados e o conteúdo em `data_base64` (sem perda, mesmo com
-UTF-8 inválido). `_motivo` nunca traz conteúdo da mensagem, só a categoria (e o nome do campo, quando
-for o caso). Motivos: `mensagem_vazia`, `utf8_invalido`, `json_invalido`, `registro_json_invalido`
-(JSON que não é objeto), `aninhamento_excessivo`, `campo_reservado (<nome>)`,
-`campo_repetido_apos_achatamento (<nome>)`, `campo_obrigatorio_ausente (<nome>)` e
+UTF-8 inválido). `_motivo` nunca traz conteúdo da mensagem, só a categoria e, quando for o caso, um
+nome vindo do schema ou da configuração (reservado ou obrigatório), nunca um nome vindo da mensagem.
+Motivos: `mensagem_vazia`, `utf8_invalido`, `json_invalido`, `registro_json_invalido` (JSON que não é
+objeto), `aninhamento_excessivo`, `campo_reservado (<nome>)`, `campo_repetido_apos_achatamento` (sem
+o nome: ele vem da mensagem e pode ser dado), `campo_obrigatorio_ausente (<nome>)` e
 `erro_inesperado (<tipo>)`. Rejeitar por mensagem (e não o lote inteiro) evita que uma mensagem ruim
 trave a assinatura.
 
@@ -96,7 +97,7 @@ def _flatten(obj: dict[str, Any], prefix: str, out: dict[str, str | None]) -> No
             _flatten(value, name, out)
             continue
         if name in out:
-            raise _Rejected(f"campo_repetido_apos_achatamento ({_name(name)})")
+            raise _Rejected("campo_repetido_apos_achatamento")  # o nome vem da mensagem: não aparece
         out[name] = None if isinstance(value, dict) else _cell(value)
 
 

@@ -23,6 +23,13 @@ cookiecutter template-pipeline --no-input origens=arquivo,api motor_ingestao=amb
 
 O gancho `hooks/pre_gen_project.py` valida as respostas; `hooks/post_gen_project.py` remove o que não se aplica (DAG do outro motor, bloco da origem não escolhida, `sql/views/`, `spark/`; com a origem `api` não gera `tests/test_local_run.py`, que faria rede). Com `pubsub`, o `tests/test_local_run.py` do projeto publica mensagens sintéticas num `LocalPubSub` e o injeta em `build_context`: `dataeng run local` sozinho usa uma fila em memória vazia e termina ok com 0 linhas.
 
+## Pub/Sub: operação
+
+- **Dead-letter:** configure na assinatura `max_delivery_attempts` e um tópico dead-letter. Sem isso, um lote que falha sempre (ex.: verificação de qualidade bloqueante que falha por causa do conteúdo de uma mensagem) volta para sempre: a silver já foi gravada (de forma idempotente), mas nada é confirmado e o backlog não drena. Use verificação bloqueante sobre o conteúdo das mensagens com cuidado; prefira rejeitar por mensagem com `rejeitar_se` (vai para a quarentena e é confirmada).
+- **Prazo de ack:** a biblioteca não estende o prazo de ack durante o processamento. Configure o `ackDeadlineSeconds` da assinatura (até 600 s) para cobrir um lote completo (pull + bronze + silver + quarentena + `dml_pos_carga`) e reduza `max_mensagens` se necessário. Um ack depois do prazo pode ser ignorado pelo serviço: as mensagens voltam (a carga é idempotente, mas o backlog não drena).
+- **`modo_carga: merge` com chaves de negócio:** em cada lote fica a mensagem de maior `publish_time` por chave; as superadas são confirmadas sem ir para a silver nem para a quarentena. O merge é incondicional: um evento atrasado (mais antigo) que chegue numa execução posterior sobrescreve o mais novo já gravado.
+- **Quarentena:** `_linha_original` guarda a mensagem inteira em base64 (com `attributes`), cerca de 33% maior que o original; mensagens grandes inflam a tabela `<tabela>_rejeitados`.
+
 ## Testes
 
 ```bash

@@ -7,7 +7,7 @@ import hashlib
 import json
 import logging
 from collections.abc import Callable, Iterator, Sequence
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -281,19 +281,34 @@ def test_invalid_json_goes_to_quarantine_and_is_acked(make_ctx: MakeCtx, ps: Loc
     assert "SEGREDO" not in result.detail + second.detail
 
 
-def test_empty_queue_succeeds_with_zero_rows(make_ctx: MakeCtx, ps: LocalPubSub) -> None:
+def test_empty_queue_succeeds_with_zero_rows(make_ctx: MakeCtx, ps: LocalPubSub, project: Path) -> None:
+    (project / "sql").mkdir()
+    (project / "sql" / "ddl.sql").write_text(
+        "CREATE SCHEMA IF NOT EXISTS ${dataset_silver};\n"
+        "CREATE TABLE IF NOT EXISTS ${dataset_silver}.eventos (message_id VARCHAR);\n",
+        encoding="utf-8",
+    )
+    (project / "sql" / "dml.sql").write_text(
+        "CREATE SCHEMA IF NOT EXISTS ${dataset_silver};\n"
+        "CREATE OR REPLACE TABLE ${dataset_silver}.marca_dml AS SELECT 1 AS x;\n",
+        encoding="utf-8",
+    )
     rec = Recorder()
-    pipe = pipeline(step())
+    pipe = pipeline(step(ddl=["sql/ddl.sql"], dml_pos_carga=["sql/dml.sql"], qualidade=[{"nao_nulo": ["id"]}]))
     ctx = make_ctx(pipe, SpyPubSub(ps, rec))
+    ctx.warehouse = SpyWarehouse(ctx.warehouse, rec)  # type: ignore[assignment]
 
     result = run_step(pipe.get("ingere_eventos"), ctx)
 
     assert result.status == "ok", result.detail
     assert (result.rows_read, result.rows_written, result.rows_rejected, result.backlog) == (0, 0, 0, 0)
     assert "fila vazia" in result.detail
-    assert [e[0] for e in rec.events] == ["pull"]  # nem ack nem nack de lista vazia
+    assert result.quality == []  # a qualidade nem rodou
+    # só o pull e a linha do controle: nem ack/nack, nem DDL, carga, quarentena ou DML
+    assert rec.events == [("pull", SUB, "1000"), ("load", CONTROL)]
     assert ctx.storage.list(BRONZE + "/") == []
     assert not ctx.warehouse.table_exists(TABLE) and not ctx.warehouse.table_exists(QUARANTINE)
+    assert not ctx.warehouse.table_exists("silver.marca_dml")
     assert control(ctx) == [(RID1, "ok", 0, 0, 0, 0)]
 
 
@@ -403,6 +418,44 @@ def test_ack_failure_is_reported_and_rerun_with_another_run_id_does_not_duplicat
     assert ps.backlog(SUB) == 0
 
 
+def test_failed_nack_keeps_the_original_failure(make_ctx: MakeCtx, ps: LocalPubSub) -> None:
+    class BadNack(SpyPubSub):
+        def nack(self, subscription: str, ack_ids: Sequence[str]) -> None:
+            self.rec.events.append(("nack", *ack_ids))
+            raise RuntimeError("SEGREDO-123 nack")
+
+    publish(ps, {"id": "1"}, "m1")
+    rec = Recorder()
+    pipe = pipeline(step())
+    ctx = make_ctx(pipe, BadNack(ps, rec))
+    ctx.warehouse = FlakyWarehouse(ctx.warehouse, TABLE)  # type: ignore[assignment]
+
+    result = run_step(pipe.get("ingere_eventos"), ctx)
+
+    assert result.status == "falha"
+    assert "fase 'carga_silver'" in result.detail and "falha simulada na carga" in result.detail
+    assert "voltam após o prazo de ack" in result.detail
+    assert "SEGREDO" not in result.detail
+    assert [e[0] for e in rec.events] == ["pull", "nack"]
+    assert ps.backlog(SUB) == 1  # nada confirmado
+
+
+def test_blocking_quality_failure_detail_explains_silver_and_dead_letter(make_ctx: MakeCtx, ps: LocalPubSub) -> None:
+    publish(ps, {"id": "1", "produto": {"nome": None}, "valor": "1"}, "m1")
+    pipe = pipeline(step(qualidade=[{"nao_nulo": ["produto__nome"], "bloqueante": True}]))
+    ctx = make_ctx(pipe, ps)
+
+    result = run_step(pipe.get("ingere_eventos"), ctx)
+
+    assert result.status == "falha" and "fase 'qualidade'" in result.detail
+    assert "a silver já foi alterada por este lote" in result.detail
+    assert "idempotente" in result.detail
+    assert "não foram confirmadas" in result.detail
+    assert "dead-letter" in result.detail and "max_delivery_attempts" in result.detail
+    assert silver(ctx) == [("m1", "1", None, 1.0, RID1)]  # a carga já aconteceu antes da qualidade
+    assert ps.backlog(SUB) == 1
+
+
 # ------------------------------------------------------------------- deduplicação por message_id
 
 
@@ -438,6 +491,77 @@ def test_merge_mode_uses_chaves_merge(make_ctx: MakeCtx, ps: LocalPubSub) -> Non
     publish(ps, {"id": "1", "produto": {"nome": "gasolina"}, "valor": "6"}, "m9")  # mesma chave de negócio
     assert run_step(pipe.get("ingere_eventos"), make_ctx(pipe, ps, run_id=RID2)).status == "ok"
     assert silver(ctx) == [("m9", "1", "gasolina", 6.0, RID2)]
+
+
+class StepClock:
+    """Relógio de publicação controlado pelo teste (`publish_time` de cada mensagem)."""
+
+    def __init__(self) -> None:
+        self.now = T0
+
+    def __call__(self) -> datetime:
+        return self.now
+
+
+def test_merge_by_business_key_keeps_latest_event_and_acks_all(make_ctx: MakeCtx) -> None:
+    clock = StepClock()
+    ps = LocalPubSub(clock=clock)
+    events = [({"id": "1", "valor": "1"}, "e1"), ({"id": "1", "valor": "2"}, "e2"), ({"id": "9", "valor": "2"}, "e3")]
+    for minute, (payload, mid) in enumerate(events):
+        clock.now = T0 + timedelta(minutes=minute)
+        publish(ps, payload, mid)
+    rec = Recorder()
+    pipe = pipeline(step(modo_carga="merge", chaves_merge=["id"]))
+    ctx = make_ctx(pipe, SpyPubSub(ps, rec))
+
+    result = run_step(pipe.get("ingere_eventos"), ctx)
+
+    assert result.status == "ok", result.detail
+    assert silver(ctx) == [("e2", "1", None, 2.0, RID1), ("e3", "9", None, 2.0, RID1)]
+    assert "1 superada(s)" in result.detail
+    assert (result.rows_read, result.rows_written, result.rows_rejected) == (3, 2, 0)
+    assert not ctx.warehouse.table_exists(QUARANTINE)  # superadas não vão para a quarentena
+    assert ("ack", "ack-1", "ack-2", "ack-3") in rec.events  # inclusive a superada
+    assert ps.backlog(SUB) == 0
+
+    # reentrega (entrega duplicada) numa nova execução: upsert, sem duplicar
+    clock.now = T0 + timedelta(minutes=1)
+    publish(ps, {"id": "1", "valor": "2"}, "e2")
+    again = run_step(pipe.get("ingere_eventos"), make_ctx(pipe, ps, run_id=RID2))
+    assert again.status == "ok", again.detail
+    assert silver(ctx) == [("e2", "1", None, 2.0, RID2), ("e3", "9", None, 2.0, RID1)]
+
+
+def test_merge_by_business_key_uses_publish_time_then_arrival_order(make_ctx: MakeCtx) -> None:
+    clock = StepClock()
+    ps = LocalPubSub(clock=clock)
+    clock.now = T0 + timedelta(minutes=5)
+    publish(ps, {"id": "1", "valor": "5"}, "novo")  # chega primeiro, mas é o mais recente
+    clock.now = T0
+    publish(ps, {"id": "1", "valor": "1"}, "antigo")
+    publish(ps, {"id": "2", "valor": "1"}, "a")
+    publish(ps, {"id": "2", "valor": "2"}, "b")  # mesmo publish_time de "a": vence o último a chegar
+    publish(ps, b"nao json", "ruim")
+    publish(ps, b"nao json", "ruim")  # entrega duplicada de inválida: uma linha na quarentena
+    pipe = pipeline(step(modo_carga="merge", chaves_merge=["id"]))
+    ctx = make_ctx(pipe, ps)
+
+    result = run_step(pipe.get("ingere_eventos"), ctx)
+
+    assert result.status == "ok", result.detail
+    assert silver(ctx) == [("b", "2", None, 2.0, RID1), ("novo", "1", None, 5.0, RID1)]
+    assert "2 superada(s)" in result.detail
+    assert quarantine(ctx) == [("ruim", "json_invalido", RID1)]
+    assert ps.backlog(SUB) == 0
+
+
+def test_merge_key_missing_after_transform_fails_and_nacks(make_ctx: MakeCtx, ps: LocalPubSub) -> None:
+    publish(ps, {"id": "1"}, "m1")
+    rec = Recorder()
+    pipe = pipeline(step(modo_carga="merge", chaves_merge=["codigo"]))
+    result = run_step(pipe.get("ingere_eventos"), make_ctx(pipe, SpyPubSub(ps, rec)))
+    assert result.status == "falha" and "chaves_merge" in result.detail and "codigo" in result.detail
+    assert [e[0] for e in rec.events] == ["pull", "nack"]
 
 
 # ------------------------------------------------------------------- backlog e max_mensagens

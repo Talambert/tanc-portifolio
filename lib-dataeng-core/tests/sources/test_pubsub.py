@@ -186,7 +186,7 @@ def test_reserved_duplicated_and_missing_required_fields_reject_only_that_messag
     assert [(r["message_id"], r["_motivo"]) for r in batch.rejected.to_dict("records")] == [
         ("m1", "campo_reservado (message_id)"),
         ("m2", "campo_reservado (_run_id)"),
-        ("m3", "campo_repetido_apos_achatamento (a__b)"),
+        ("m3", "campo_repetido_apos_achatamento"),  # o nome vem da mensagem (pode ser dado): omitido
         ("m4", "campo_obrigatorio_ausente (id)"),
     ]
     assert len(batch.ack_ids) == 5

@@ -10,6 +10,13 @@ Ordem e garantias:
   (o schema de destino precisa da coluna `message_id`); com `merge`, por `chaves_merge`.
   `overwrite_particao` é recusado na validação do YAML (cada lote apagaria os anteriores). Entregas
   repetidas no mesmo lote são descartadas (fica a primeira) e, entre execuções, o merge não duplica.
+- `merge` por chaves de negócio (`chaves_merge` diferente de `[message_id]`): depois do dedupe por
+  `message_id`, o lote fica com UMA mensagem por chave, a de maior `publish_time` (empate: a última a
+  chegar). As superadas são eventos antigos da mesma entidade: não vão para a quarentena, mas são
+  confirmadas com as demais, e o detalhe traz a contagem. Limitação: o merge do `Warehouse` é
+  incondicional, então um evento ATRASADO (de `publish_time` mais antigo) que chegue numa execução
+  posterior sobrescreve o mais novo já gravado; quem precisa disso deve comparar `publish_time` num
+  `dml_pos_carga` ou usar `append` (uma linha por mensagem).
 - Quarentena (`<tabela>_rejeitados`): `message_id`, `_linha_original`, `_motivo` e as colunas de
   controle, também por `merge` em `message_id` (reentrega não duplica). JSON inválido vai para lá.
 - SÓ ENTÃO `ack` de todos os `ack_ids` do lote, inclusive os das mensagens quarentenadas.
@@ -17,7 +24,16 @@ Ordem e garantias:
   `dml_pos_carga`): nenhum `ack`; `nack` de todo o lote (reentrega imediata) e a etapa termina em falha
   com a fase. Falha no próprio `ack`: etapa em falha na fase `ack`; as mensagens voltam e a próxima
   execução as regrava sem duplicar.
-- Fila vazia: `ok` com 0 linhas; bronze, silver e quarentena não são tocados.
+- Qualidade bloqueante que falha: a silver e a quarentena JÁ foram gravadas (de forma idempotente), mas
+  nada é confirmado; se a falha vier do conteúdo, o lote volta sempre. Configure na assinatura uma
+  dead-letter policy (`max_delivery_attempts` + tópico dead-letter) e prefira rejeitar por mensagem
+  (`rejeitar_se` → quarentena) a usar verificação bloqueante sobre o conteúdo das mensagens.
+- Prazo de ack: não é estendido durante o processamento (o `PubSubClient` não tem essa operação).
+  Configure o `ackDeadlineSeconds` da assinatura (até 600 s) para cobrir um lote completo (pull +
+  bronze + silver + quarentena + dml) e reduza `max_mensagens` se preciso. Um ack depois do prazo pode
+  ser ignorado pelo serviço: as mensagens voltam (a carga é idempotente, mas o backlog não drena).
+- Fila vazia: retorna logo depois do pull, `ok` com 0 linhas e o backlog registrado; nada de bronze,
+  DDL, transformação, carga, qualidade, `dml_pos_carga`, ack ou nack (o polling frequente não roda DML).
 - Backlog: medido depois do `ack` (o que resta na assinatura) e registrado no controle (`backlog`);
   em falha, o medido logo depois do pull. `None` quando o cliente não sabe medir (ex.: `GcpPubSub`).
 """
@@ -39,22 +55,20 @@ from dataeng_core.pubsub.base import PubSubClient
 from dataeng_core.sources.pubsub import PulledBatch, pull_batch, raw_message, read_backlog
 from dataeng_core.steps.context import StepContext, StepResult
 from dataeng_core.steps.ingestao import (
-    LINHA_ORIGINAL,
     RESERVED_COLUMNS,
-    SOURCE_FILE,
     _add_control,
     _conform,
     _load_outputs,
-    _original_line,
     _plain,
     _Progress,
+    _quarantine,
     _safe_name,
     _table_names,
     _with_source,
     _write_bronze,
     ingestion_date_of,
 )
-from dataeng_core.transform.engine_pandas import MOTIVO, apply_transform
+from dataeng_core.transform.engine_pandas import apply_transform
 
 log = get_logger(__name__)
 
@@ -118,26 +132,32 @@ def _dedupe(frame: pd.DataFrame) -> tuple[pd.DataFrame, int]:
     return kept, len(frame) - len(kept)
 
 
-def _quarantine_frame(batch: PulledBatch, transform_rejected: pd.DataFrame, uri: str) -> pd.DataFrame:
-    ids: list[str | None] = []
-    lines: list[str] = []
-    reasons: list[str] = []
-    for rec in batch.rejected.to_dict("records"):
-        ids.append(rec[DEDUPE_KEY])
-        lines.append(str(rec[LINHA_ORIGINAL]))
-        reasons.append(str(rec[MOTIVO]))
-    for rec in transform_rejected.to_dict("records"):
-        reasons.append(str(rec.pop(MOTIVO)))
-        rec.pop(SOURCE_FILE, None)
-        ids.append(_plain(rec.get(DEDUPE_KEY)))
-        lines.append(_original_line(rec))
-    frame = pd.DataFrame(
-        {
-            DEDUPE_KEY: pd.Series(ids, dtype="string"),
-            LINHA_ORIGINAL: pd.Series(lines, dtype="string"),
-            MOTIVO: pd.Series(reasons, dtype="string"),
-        }
-    )
+def _keep_latest(frame: pd.DataFrame, keys: list[str]) -> tuple[pd.DataFrame, int]:
+    """Uma linha por chave de negócio: a de maior `publish_time` (empate: a última a chegar)."""
+    if frame.empty or keys == [DEDUPE_KEY]:
+        return frame, 0
+    missing = [k for k in keys if k not in frame.columns]
+    if missing:
+        raise ConfigError(
+            f"coluna(s) de `destino.chaves_merge` ausente(s) nos dados depois da transformação: "
+            f"{', '.join(missing)}; ajuste `chaves_merge` ou `transformacao`",
+            operation="ingestao.carga",
+        )
+    ordered = frame.assign(_ordem=range(len(frame)))
+    if "publish_time" in ordered.columns:
+        ordered = ordered.sort_values(["publish_time", "_ordem"], kind="stable", na_position="first")
+    kept = ordered.drop_duplicates(subset=keys, keep="last").sort_values("_ordem").drop(columns="_ordem")
+    return kept.reset_index(drop=True), len(frame) - len(kept)
+
+
+def _quarantine_frame(batch: PulledBatch, transform_rejected: pd.DataFrame) -> pd.DataFrame:
+    """Quarentena no formato comum (`_linha_original`, `_motivo`) mais `message_id`, sem repetidas."""
+    ids = [*batch.rejected[DEDUPE_KEY].tolist()]
+    if DEDUPE_KEY in transform_rejected.columns:
+        ids += [_plain(v) for v in transform_rejected[DEDUPE_KEY].tolist()]
+    common, _ = _quarantine(batch.rejected, transform_rejected, "")
+    frame = common.copy()
+    frame.insert(0, DEDUPE_KEY, pd.Series(ids, dtype="string", index=frame.index))
     return _dedupe(frame)[0]
 
 
@@ -152,16 +172,14 @@ def _process(
     load_args: dict[str, Any],
     dest_schema: Any,
     day: dt.date,
-) -> tuple[int, list[str]]:
-    """Bronze → transformação → silver/quarentena/qualidade/dml. Devolve (duplicadas no lote, notas)."""
+) -> tuple[int, int, list[str]]:
+    """Bronze → transformação → silver/quarentena/qualidade/dml. Devolve (duplicadas, superadas, notas)."""
     loaded_at = pd.Timestamp.now(tz="UTC").floor("us")
     params = {**ctx.params, "ingestion_date": day.isoformat()}
-    uri = ""
-    if batch.messages:
-        prog.phase = "bronze"
-        digest, data = _bronze_payload(batch)
-        name = _safe_name(f"{step.id}_{digest}.jsonl", f"mensagens_{digest}.jsonl")
-        uri = _write_bronze(ctx, step, day, name, data, manifest_name=f"_manifesto_{digest}.json")
+    prog.phase = "bronze"
+    digest, data = _bronze_payload(batch)
+    name = _safe_name(f"{step.id}_{digest}.jsonl", f"mensagens_{digest}.jsonl")
+    uri = _write_bronze(ctx, step, day, name, data, manifest_name=f"_manifesto_{digest}.json")
 
     prog.phase = "transformacao"
     tr = apply_transform(_with_source(batch.records, uri), step.transformacao, project_root=ctx.project_root)
@@ -173,7 +191,8 @@ def _process(
                 operation="ingestao.transformacao",
             )
     rows, duplicates = _dedupe(tr.rows)
-    rejected = _quarantine_frame(batch, tr.rejected, uri)
+    rows, superseded = _keep_latest(rows, load_args["merge_keys"])
+    rejected = _quarantine_frame(batch, tr.rejected)
     prog.rejected = len(rejected)
 
     sources = pd.Series([uri] * len(rows), dtype="string")
@@ -191,7 +210,7 @@ def _process(
         quarantine_args={"mode": "merge", "merge_keys": [DEDUPE_KEY]},
         params=params,
     )
-    return duplicates, notes
+    return duplicates, superseded, notes
 
 
 def ingest_pubsub(step: IngestaoStep, origem: PubSubOrigem, ctx: StepContext, prog: _Progress) -> StepResult:
@@ -218,8 +237,16 @@ def ingest_pubsub(step: IngestaoStep, origem: PubSubOrigem, ctx: StepContext, pr
     batch = pull_batch(client, origem, schema=src_schema, reserved=RESERVED_COLUMNS)
     prog.read = len(batch.records) + len(batch.rejected)
     prog.backlog = batch.backlog
+    if not batch.messages:
+        return StepResult(
+            step.id,
+            "ok",
+            backlog=prog.backlog,
+            detail=f"fila vazia: nenhuma mensagem na assinatura; nada foi carregado em {table}; "
+            f"backlog restante: {'desconhecido' if prog.backlog is None else prog.backlog}",
+        )
     try:
-        duplicates, notes = _process(
+        duplicates, superseded, notes = _process(
             step,
             ctx,
             prog,
@@ -237,23 +264,31 @@ def ingest_pubsub(step: IngestaoStep, origem: PubSubOrigem, ctx: StepContext, pr
             prog.note = (
                 f"as {len(batch.ack_ids)} mensagem(ns) do lote não foram confirmadas e serão reentregues ({how})"
             )
+            if prog.phase == "qualidade":
+                prog.note = (
+                    "a silver já foi alterada por este lote (a carga é idempotente: reprocessar não duplica); "
+                    f"{prog.note}. Se a falha vem do conteúdo das mensagens, o lote voltará sempre: configure "
+                    "na assinatura uma dead-letter policy (max_delivery_attempts + tópico dead-letter) e prefira "
+                    "rejeitar por mensagem com `rejeitar_se` (quarentena) a verificação bloqueante"
+                )
         raise
 
-    if batch.ack_ids:
-        prog.phase = "ack"
-        _ack(client, origem, batch.ack_ids, load_args["merge_keys"])
-        prog.backlog = read_backlog(client, origem.assinatura)
+    prog.phase = "ack"
+    _ack(client, origem, batch.ack_ids, load_args["merge_keys"])
+    prog.backlog = read_backlog(client, origem.assinatura)
 
     backlog = "desconhecido" if prog.backlog is None else str(prog.backlog)
-    if not batch.ack_ids:
-        detail = f"fila vazia: nenhuma mensagem na assinatura; nada foi carregado em {table}"
-    else:
-        detail = (
-            f"{len(batch.ack_ids)} mensagem(ns) recebida(s) e confirmada(s); {prog.written} linha(s) gravada(s) "
-            f"em {table}; {prog.rejected} na quarentena {quarantine_table}"
+    detail = (
+        f"{len(batch.ack_ids)} mensagem(ns) recebida(s) e confirmada(s); {prog.written} linha(s) gravada(s) "
+        f"em {table}; {prog.rejected} na quarentena {quarantine_table}"
+    )
+    if duplicates:
+        detail += f"; {duplicates} duplicada(s) no lote (mesmo message_id) descartada(s)"
+    if superseded:
+        detail += (
+            f"; {superseded} superada(s) por evento mais recente da mesma chave "
+            f"({', '.join(load_args['merge_keys'])}), confirmada(s) sem gravar"
         )
-        if duplicates:
-            detail += f"; {duplicates} duplicada(s) no lote (mesmo message_id) descartada(s)"
     detail = "; ".join([detail, f"backlog restante: {backlog}", *notes])
     return StepResult(
         step.id,
