@@ -1,0 +1,33 @@
+schema_version: 1
+nome: precos_combustiveis
+agenda: "0 6 * * 1"
+parametros: {}
+
+etapas:
+  - id: ingere_precos
+    tipo: ingestao
+    origem:
+      tipo: arquivo
+      localizacao: amostra.csv
+      formato: csv
+      encoding: utf-8-sig
+      delimitador: ";"
+      schema: schemas/origem_precos.yaml
+    destino:
+      bronze: "gs://${bucket_bronze}/bronze/precos_combustiveis/"
+      tabela: "${dataset_silver}.precos_combustiveis"
+      schema: schemas/destino_precos.yaml
+      modo_carga: overwrite_particao
+      particao: _ingestion_date
+      ddl: [sql/ddl/silver_precos.sql]
+    transformacao:
+      - normalizar: {cnpj_revenda: [apenas_digitos]}
+      - tipar:
+          valor_venda: {tipo: decimal, separador_decimal: ","}
+          data_coleta: {tipo: data, formato: "%d/%m/%Y"}
+      - rejeitar_se:
+          - {coluna: cnpj_revenda, regra: nao_nulo}
+          - {coluna: valor_venda, regra: faixa, minimo: 0}
+      - deduplicar: [cnpj_revenda, produto, data_coleta]
+    qualidade:
+      - nao_nulo: [cnpj_revenda, produto]
