@@ -1,4 +1,8 @@
-"""Renderização de parâmetros `${nome}` e divisão de scripts SQL em instruções."""
+"""Renderização de parâmetros `${nome}` e divisão de scripts SQL em instruções.
+
+Limitação: scripts procedurais do BigQuery (BEGIN/IF/LOOP/WHILE/REPEAT/FOR/CASE ... END)
+não são suportados; a divisão levanta `SqlError` em vez de cortar o bloco em pedaços inválidos.
+"""
 
 from __future__ import annotations
 
@@ -14,6 +18,12 @@ from dataeng_core.base.errors import SqlError
 from dataeng_core.base.params import substitute
 
 _PLACEHOLDER = re.compile(r"\$\{(\w+)\}")
+_MARKER_START = re.compile(r"\$\{[^}\n]*\}?")
+_PROCEDURAL = {"BEGIN", "IF", "LOOP", "WHILE", "REPEAT", "FOR", "CASE", "END"}
+_PROCEDURAL_MSG = (
+    "blocos procedurais (BEGIN/IF/LOOP...) não são suportados; "
+    "use uma instrução por vez ou mova a lógica para uma etapa python"
+)
 
 
 def _where(source: str | None) -> str:
@@ -23,8 +33,18 @@ def _where(source: str | None) -> str:
 def render_sql(sql: str, params: Mapping[str, str], *, source: str | None = None) -> str:
     """Troca `${nome}` por `params[nome]`; nome ausente levanta `SqlError` antes de qualquer execução.
 
-    A troca é de passada única: valores com `;`, aspas ou `${x}` não são reprocessados.
+    A troca é textual e de passada única: valores com `;`, aspas ou `${x}` não são reprocessados,
+    e um `${x}` indefinido também falha dentro de comentário ou string. Marcadores malformados
+    (`${ a }`, `${a-b}`, `${}`) levantam `SqlError` com a linha.
     """
+    valid = {m.start() for m in _PLACEHOLDER.finditer(sql)}
+    for m in _MARKER_START.finditer(sql):
+        if m.start() not in valid:
+            line = sql.count("\n", 0, m.start()) + 1
+            raise SqlError(
+                f"{_where(source)}linha {line}: marcador malformado '{m.group(0)}'; use ${{nome}}",
+                operation="render_sql",
+            )
     missing = sorted({m.group(1) for m in _PLACEHOLDER.finditer(sql)} - params.keys())
     if missing:
         names = ", ".join(f"'${{{n}}}'" for n in missing)
@@ -67,13 +87,23 @@ def _failing_line(sql: str, dialect: str) -> int:
 
 
 def split_with_lines(sql: str, dialect: str = "bigquery", *, source: str | None = None) -> list[Statement]:
-    """Divide em instruções pelo `;` fora de strings, identificadores e comentários."""
+    """Divide em instruções pelo `;` fora de strings, identificadores e comentários.
+
+    Limitação: scripts procedurais (instrução que começa com BEGIN, IF, LOOP, WHILE, REPEAT,
+    FOR, CASE ou END solto) não são suportados e levantam `SqlError` com a linha.
+    `CASE ... END` dentro de uma expressão não é afetado. `COMMIT` isolado é aceito.
+    """
     statements: list[Statement] = []
     current: list[Token] = []
 
     def flush() -> None:
         if current:
             first, last = current[0], current[-1]
+            if (
+                first.token_type not in (TokenType.STRING, TokenType.IDENTIFIER)
+                and first.text.split()[0].upper() in _PROCEDURAL
+            ):
+                raise SqlError(f"{_where(source)}linha {first.line}: {_PROCEDURAL_MSG}", operation="split_statements")
             statements.append(Statement(sql[first.start : last.end + 1], first.line))
             current.clear()
 

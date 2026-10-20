@@ -13,7 +13,9 @@ from dataeng_core.sql.render import split_with_lines
 def _is_idempotent_insert(tree: exp.Expression) -> bool:
     if tree.args.get("overwrite"):
         return True
-    return any(isinstance(n.this, exp.Exists) for n in tree.find_all(exp.Not))
+    query = tree.args.get("expression")
+    where = query.args.get("where") if isinstance(query, exp.Select) else None
+    return where is not None and any(isinstance(n.this, exp.Exists) for n in where.find_all(exp.Not))
 
 
 def validate_sql(sql: str, dialect: str = "bigquery", *, source: str | None = None) -> list[str]:

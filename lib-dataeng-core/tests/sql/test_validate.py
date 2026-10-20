@@ -70,3 +70,13 @@ def test_validate_error_does_not_leak_literal_values():
     with pytest.raises(SqlError) as exc:
         validate_sql("SELECT 'segredo-123' FROM (")
     assert "segredo-123" not in str(exc.value)
+
+
+def test_validate_not_exists_in_select_list_does_not_count():
+    sql = "INSERT INTO t (a) SELECT NOT EXISTS (SELECT 1 FROM s) AS a"
+    assert len(validate_sql(sql)) == 1
+
+
+def test_validate_rejects_procedural_block():
+    with pytest.raises(SqlError, match="blocos procedurais"):
+        validate_sql("BEGIN SELECT 1; END;")
