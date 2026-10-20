@@ -182,7 +182,8 @@ def _process(
     uri = _write_bronze(ctx, step, day, name, data, manifest_name=f"_manifesto_{digest}.json")
 
     prog.phase = "transformacao"
-    tr = apply_transform(_with_source(batch.records, uri), step.transformacao, project_root=ctx.project_root)
+    engine = ctx.transform or apply_transform
+    tr = engine(_with_source(batch.records, uri), step.transformacao, project_root=ctx.project_root)
     for frame in (tr.rows, tr.rejected):
         if len(frame) > 0 and DEDUPE_KEY not in frame.columns:
             raise ConfigError(

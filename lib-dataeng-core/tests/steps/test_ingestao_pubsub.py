@@ -190,6 +190,27 @@ def publish_sample(ps: LocalPubSub) -> None:
     publish(ps, {"id": None, "produto": {"nome": "gnv"}}, "m4")  # rejeitada na transformação
 
 
+def test_pubsub_ingestion_uses_the_context_transform_engine(make_ctx: MakeCtx, ps: LocalPubSub) -> None:
+    """`StepContext.transform` (usado por `jobs.ingest_spark`) substitui o motor pandas também no Pub/Sub."""
+    from dataclasses import replace
+
+    from dataeng_core.transform.engine_pandas import apply_transform
+
+    seen: list[list[str]] = []
+
+    def engine(df: pd.DataFrame, ops: Any, *, project_root: Path) -> Any:
+        seen.append(sorted(map(str, df.columns)))
+        return apply_transform(df, ops, project_root=project_root)
+
+    publish_sample(ps)
+    pipe = pipeline(step())
+    ctx = replace(make_ctx(pipe, ps), transform=engine)
+    result = run_step(pipe.get("ingere_eventos"), ctx)
+    assert result.status == "ok", result.detail
+    assert len(seen) == 1 and "message_id" in seen[0]
+    assert silver(ctx) == [("m1", "1", "gasolina", 5.5, RID1), ("m2", "2", "etanol", 3.99, RID1)]
+
+
 # ------------------------------------------------------------------ ponta a ponta
 
 

@@ -4,20 +4,31 @@ from __future__ import annotations
 
 import datetime as dt
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Protocol
+
+import pandas as pd
 
 from dataeng_core.base.errors import ConfigError
 from dataeng_core.base.params import Environment
-from dataeng_core.base.pipeline import Pipeline
+from dataeng_core.base.pipeline import Pipeline, TransformOp
 from dataeng_core.base.runtime import new_run_id
 from dataeng_core.pubsub.base import PubSubClient, make_pubsub
 from dataeng_core.quality.checks import CheckResult
 from dataeng_core.storage.base import Storage, make_storage
+from dataeng_core.transform.engine_pandas import TransformResult
 from dataeng_core.warehouse.base import Warehouse, make_warehouse
 
 StepStatus = Literal["ok", "falha", "nao_executada"]
+
+
+class TransformFn(Protocol):
+    """Motor da transformação da ingestão, com a assinatura de `apply_transform` (pandas)."""
+
+    def __call__(self, df: pd.DataFrame, ops: Sequence[TransformOp], *, project_root: Path) -> TransformResult: ...
+
 
 # Vai para caminhos do bronze e para a tabela de controle: só caracteres seguros em GCS, disco e SQL.
 _RUN_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}")
@@ -46,6 +57,8 @@ class StepContext:
     run_id: str
     params: dict[str, str]
     project_root: Path
+    # Motor da transformação da ingestão; None = pandas. `jobs.ingest_spark` usa o motor PySpark.
+    transform: TransformFn | None = None
 
 
 def validate_run_id(run_id: str) -> str:

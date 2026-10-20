@@ -23,7 +23,7 @@ from dataeng_core.base.errors import ConfigError, DataEngError
 from dataeng_core.base.params import Environment, load_environment
 from dataeng_core.base.pipeline import Pipeline, Step, load_pipeline
 from dataeng_core.base.runtime import redact
-from dataeng_core.steps.context import StepResult, build_context
+from dataeng_core.steps.context import StepContext, StepResult, build_context
 from dataeng_core.steps.registry import log_unexpected, run_pipeline, step_secrets
 
 PARAM_HELP = "parâmetro `chave=valor` (repetível; o valor pode conter '='); vale mais que o YAML e o ambiente"
@@ -142,12 +142,18 @@ def execute(
     run_id: str | None,
     only: Sequence[str] | None,
     secrets: list[str],
+    prepare: Callable[[StepContext], StepContext] | None = None,
 ) -> int:
-    """Monta o contexto (storage e warehouse do ambiente), executa as etapas e fecha o warehouse."""
+    """Monta o contexto (storage e warehouse do ambiente), executa as etapas e fecha o warehouse.
+
+    `prepare(ctx)` ajusta o contexto antes da execução (ex.: `jobs.ingest_spark` troca o motor da transformação).
+    """
     for step in pipeline.etapas:
         secrets.extend(step_secrets(step))
     ctx = build_context(pipeline, env, project_root=root, run_id=run_id)
     try:
+        if prepare is not None:
+            ctx = prepare(ctx)
         results = run_pipeline(pipeline, ctx, only=only)
     finally:
         close = getattr(ctx.warehouse, "close", None)
@@ -156,8 +162,18 @@ def execute(
     return print_results(results, secrets)
 
 
-def run_job(argv: Sequence[str] | None, *, prog: str, description: str, required_type: str | None = None) -> int:
-    """Corpo comum de `jobs.run_step` e `jobs.ingest`; `required_type` recusa etapas de outro tipo."""
+def run_job(
+    argv: Sequence[str] | None,
+    *,
+    prog: str,
+    description: str,
+    required_type: str | None = None,
+    prepare: Callable[[StepContext], StepContext] | None = None,
+) -> int:
+    """Corpo comum de `jobs.run_step`, `jobs.ingest` e `jobs.ingest_spark`.
+
+    `required_type` recusa etapas de outro tipo; `prepare` é repassado a `execute`.
+    """
     ensure_utf8()
     parser = argparse.ArgumentParser(prog=prog, description=description)
     parser.add_argument("--config", type=Path, required=True, help="caminho do config/pipeline.yaml")
@@ -181,7 +197,7 @@ def run_job(argv: Sequence[str] | None, *, prog: str, description: str, required
                 f"tipo '{required_type}'; para outros tipos use `python -m dataeng_core.jobs.run_step`",
                 operation=prog,
             )
-        return execute(pipeline, env, root, args.run_id, [step.id], secrets)
+        return execute(pipeline, env, root, args.run_id, [step.id], secrets, prepare)
 
     return guarded(body, args.etapa)
 

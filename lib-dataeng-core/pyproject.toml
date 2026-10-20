@@ -61,6 +61,7 @@ pythonpath = ["."]
 markers = [
     "gcp: contrato contra GCP real; pulado sem GOOGLE_APPLICATION_CREDENTIALS e DATAENG_GCP_PROJECT",
     "airflow: importa a DAG com o Airflow real; pulado se o Airflow não estiver instalado (roda no CI, em Linux)",
+    "spark: usa o PySpark real em modo local; pulado sem o PySpark (extra [spark]) ou sem Java (roda no CI, em Linux)",
 ]
 
 [tool.ruff]
@@ -76,7 +77,7 @@ mypy_path = "src"
 packages = ["dataeng_core"]
 
 [[tool.mypy.overrides]]
-module = ["google", "google.*", "airflow", "airflow.*"]
+module = ["google", "google.*", "airflow", "airflow.*", "pyspark", "pyspark.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

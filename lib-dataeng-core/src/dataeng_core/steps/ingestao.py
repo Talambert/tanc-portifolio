@@ -495,7 +495,7 @@ def _ingest(step: IngestaoStep, ctx: StepContext, prog: _Progress) -> StepResult
     prog.read = len(rows) + len(read_rejected)
 
     prog.phase = "transformacao"
-    tr = apply_transform(rows, step.transformacao, project_root=ctx.project_root)
+    tr = (ctx.transform or apply_transform)(rows, step.transformacao, project_root=ctx.project_root)
     rejected, rejected_sources = _quarantine(read_rejected, tr.rejected, uri)
     prog.rejected = len(rejected)
     sources = tr.rows[SOURCE_FILE] if SOURCE_FILE in tr.rows.columns else pd.Series([uri] * len(tr.rows))
