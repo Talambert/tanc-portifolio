@@ -124,15 +124,67 @@ def test_duplicate_merge_keys_in_input_rejected() -> None:
     assert wh.row_count("t") == 1
 
 
-def test_failed_load_rolls_back_and_hides_values() -> None:
+def _table_with_row() -> LocalWarehouse:
     wh = LocalWarehouse()
-    wh.run_sql(["CREATE TABLE t (id INTEGER, v INTEGER)"])
-    wh.load("t", pd.DataFrame({"id": [1], "v": [1]}), mode="append")
-    bad = pd.DataFrame({"id": [2, 3], "v": ["10", "segredo-super-secreto"]})
+    wh.run_sql(["CREATE TABLE t (id INTEGER, v INTEGER)", "INSERT INTO t VALUES (1, 10)"])
+    return wh
+
+
+def _rows(wh: LocalWarehouse) -> list[tuple[int, int]]:
+    return [(int(r.id), int(r.v)) for r in wh.query("SELECT id, v FROM t ORDER BY id").itertuples()]
+
+
+def test_failed_overwrite_partition_rolls_back_delete_and_hides_values() -> None:
+    wh = _table_with_row()
+    bad = pd.DataFrame({"id": [1, 2], "v": ["10", "segredo"]})
     with pytest.raises(LoadError) as info:
         wh.load("t", bad, mode="overwrite_partition", partition_column="id")
-    assert "segredo-super-secreto" not in str(info.value)
-    assert wh.row_count("t") == 1
+    assert "segredo" not in str(info.value)
+    assert _rows(wh) == [(1, 10)]
+
+
+def test_failed_merge_rolls_back_update() -> None:
+    wh = _table_with_row()
+    bad = pd.DataFrame({"id": [1, 2], "v": ["11", "segredo"]})
+    with pytest.raises(LoadError) as info:
+        wh.load("t", bad, mode="merge", merge_keys=["id"])
+    assert "segredo" not in str(info.value)
+    assert _rows(wh) == [(1, 10)]
+
+
+def test_rollback_failure_does_not_mask_original_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    wh = _table_with_row()
+
+    class _Con:
+        def __init__(self, real: object) -> None:
+            self._real = real
+
+        def execute(self, sql: str, *args: object) -> object:
+            if sql == "ROLLBACK":
+                raise RuntimeError("rollback quebrou")
+            return self._real.execute(sql, *args)  # type: ignore[attr-defined]
+
+        def __getattr__(self, name: str) -> object:
+            return getattr(self._real, name)
+
+    monkeypatch.setattr(wh, "_con", _Con(wh._con))
+    with pytest.raises(LoadError, match="falha ao gravar"):
+        wh.load("t", pd.DataFrame({"id": [2], "v": ["segredo"]}), mode="append")
+
+
+@pytest.mark.parametrize("bad", ["abc\n", "\nabc", "caf\u00e9", "a b"])
+def test_identifier_with_newline_or_accent_rejected(bad: str) -> None:
+    with pytest.raises(ConfigError):
+        LocalWarehouse().table_exists(bad)
+
+
+def test_column_names_are_case_insensitive() -> None:
+    wh = _table_with_row()
+    assert wh.load("t", pd.DataFrame({"ID": [2], "V": [20]}), mode="append") == 1
+    assert wh.load("t", pd.DataFrame({"ID": [2], "V": [21]}), mode="merge", merge_keys=["id"]) == 1
+    assert _rows(wh) == [(1, 10), (2, 21)]
+    with pytest.raises(ConfigError, match="repetidos"):
+        wh.load("t", pd.DataFrame([[1, 2]], columns=["a", "A"]), mode="append")
 
 
 def test_merge_with_null_keys_does_not_duplicate() -> None:

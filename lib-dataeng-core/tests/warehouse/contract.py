@@ -34,6 +34,7 @@ def run_warehouse_contract(
     t_merge = f"{dataset}.contrato_merge"
     t_ddl = f"{dataset}.contrato_ddl"
     view = f"{dataset}.contrato_view"
+    t_null = f"{dataset}.contrato_null"
     ddl_cols = f"id {int_type}, nome {text_type}, dia {text_type}"
     try:
         # execute_ddl cria a tabela; table_exists / row_count
@@ -100,6 +101,25 @@ def run_warehouse_contract(
             wh.load(t_part, novo, mode="overwrite_partition")
         assert wh.row_count(t_merge) == 3
 
+        # tabela inexistente: row_count levanta LoadError
+        with pytest.raises(LoadError):
+            wh.row_count(f"{dataset}.contrato_nao_existe")
+
+        # DataFrame vazio em tabela existente é no-op e não apaga nada
+        vazio = _frame([])
+        assert wh.load(t_part, vazio, mode="append") == 0
+        assert wh.load(t_part, vazio, mode="overwrite_partition", partition_column="dia") == 0
+        assert wh.load(t_merge, vazio, mode="merge", merge_keys=["id"]) == 0
+        assert wh.row_count(t_part) == 4
+        assert wh.row_count(t_merge) == 3
+
+        # valores None/NULL são gravados; merge por chave nula não duplica
+        nulos = pd.DataFrame({"id": [1, 2], "nome": ["a", None], "dia": ["d1", "d1"]})
+        wh.load(t_null, nulos, mode="append")
+        assert wh.query(f"SELECT id FROM {t_null} WHERE nome IS NULL")["id"].tolist() == [2]
+        wh.load(t_null, nulos, mode="merge", merge_keys=["id"])
+        assert wh.row_count(t_null) == 2
+
         # entradas inválidas: ConfigError, nunca exceção crua
         with pytest.raises(ConfigError):
             wh.load(t_merge, carga, mode="inexistente")  # type: ignore[arg-type]
@@ -111,5 +131,5 @@ def run_warehouse_contract(
             wh.table_exists("")
     finally:
         wh.run_sql([f"DROP VIEW IF EXISTS {view}"])
-        for name in (t_append, t_part, t_merge, t_ddl):
+        for name in (t_append, t_part, t_merge, t_ddl, t_null):
             wh.run_sql([f"DROP TABLE IF EXISTS {name}"])

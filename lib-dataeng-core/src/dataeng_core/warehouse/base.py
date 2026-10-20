@@ -14,7 +14,7 @@ from dataeng_core.base.params import Environment
 LoadMode = Literal["append", "overwrite_partition", "merge"]
 LOAD_MODES: tuple[str, ...] = ("append", "overwrite_partition", "merge")
 
-_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
 class Warehouse(Protocol):
@@ -46,8 +46,12 @@ class Warehouse(Protocol):
 
 
 def validate_identifier(name: str, *, what: str, operation: str) -> str:
-    """Aceita só letras, dígitos e `_` (sem começar por dígito); evita SQL montado com texto livre."""
-    if not isinstance(name, str) or not _IDENTIFIER.match(name):
+    """Aceita só ASCII: letras, dígitos e `_` (sem começar por dígito).
+
+    Nomes com acento são recusados de propósito, para evitar SQL montado com texto livre e
+    divergências de normalização entre motores.
+    """
+    if not isinstance(name, str) or not _IDENTIFIER.fullmatch(name):
         shown = name if isinstance(name, str) and len(name) <= 80 else "<valor inválido>"
         raise ConfigError(
             f"{what} inválido: '{shown}'. Use apenas letras, dígitos e '_', sem começar por dígito.",

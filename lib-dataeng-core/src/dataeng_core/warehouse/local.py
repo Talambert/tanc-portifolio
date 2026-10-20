@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import uuid
 from collections.abc import Sequence
 from pathlib import Path
@@ -30,7 +31,7 @@ def _qualified(schema: str | None, table: str) -> str:
 
 
 def _short(exc: Exception) -> str:
-    """Tipo do erro e a primeira linha, sem valores de dados (DuckDB cita valores em erros de conversão)."""
+    """Só o tipo do erro: o DuckDB cita valores de dados em erros de conversão (usado em `load`)."""
     return type(exc).__name__
 
 
@@ -73,6 +74,7 @@ class LocalWarehouse:
                     self._con.execute(f"CREATE SCHEMA IF NOT EXISTS {_q(schema)}")
 
     def _exec(self, sql: str, operation: str) -> None:
+        """Executa SQL livre. A mensagem de erro pode citar um trecho do erro do DuckDB."""
         if not isinstance(sql, str) or not sql.strip():
             raise SqlError("o SQL está vazio.", operation=operation)
         try:
@@ -104,6 +106,7 @@ class LocalWarehouse:
         self._exec(f"CREATE OR REPLACE VIEW {_qualified(schema, view)} AS {body}", "warehouse.create_or_replace_view")
 
     def query(self, sql: str) -> pd.DataFrame:
+        """Consulta livre. A mensagem de erro pode citar um trecho do erro do DuckDB."""
         if not isinstance(sql, str) or not sql.strip():
             raise SqlError("o SQL está vazio.", operation="warehouse.query")
         try:
@@ -156,7 +159,7 @@ class LocalWarehouse:
         if not isinstance(rows, pd.DataFrame) or len(rows.columns) == 0:
             raise ConfigError("os dados a carregar devem ser um DataFrame com ao menos uma coluna.", operation=op)
         columns = [validate_identifier(str(c), what="nome de coluna", operation=op) for c in rows.columns]
-        if len(set(columns)) != len(columns):
+        if len({c.lower() for c in columns}) != len(columns):
             raise ConfigError("o DataFrame tem nomes de coluna repetidos.", operation=op)
         keys = [validate_identifier(k, what="chave de merge", operation=op) for k in merge_keys]
         part = (
@@ -168,10 +171,14 @@ class LocalWarehouse:
         if mode == "overwrite_partition" and part is None:
             raise LoadError("o modo overwrite_partition exige partition_column.", operation=op)
         control = keys if mode == "merge" else ([part] if part else [])
-        absent = [c for c in control if c not in columns]
+        lowered = {c.lower() for c in columns}
+        absent = [c for c in control if c.lower() not in lowered]
         if absent:
             raise LoadError(f"coluna(s) ausente(s) nos dados: {', '.join(absent)}.", operation=op)
-        if mode == "merge" and rows.duplicated(subset=keys).any():
+        if (
+            mode == "merge"
+            and rows.duplicated(subset=[c for c in columns if c.lower() in {k.lower() for k in keys}]).any()
+        ):
             raise LoadError(
                 f"os dados têm chaves de merge duplicadas ({', '.join(keys)}); deduplique antes de carregar.",
                 operation=op,
@@ -185,7 +192,8 @@ class LocalWarehouse:
                 self._con.execute(f"CREATE SCHEMA IF NOT EXISTS {_q(schema)}")
             existing = self._columns(schema, name)
             if existing:
-                unknown = [c for c in columns if c not in existing]
+                known = {c.lower() for c in existing}
+                unknown = [c for c in columns if c.lower() not in known]
                 if unknown:
                     raise LoadError(f"coluna(s) inexistente(s) em {table}: {', '.join(unknown)}.", operation=op)
             self._con.execute("BEGIN TRANSACTION")
@@ -195,7 +203,8 @@ class LocalWarehouse:
                 self._apply(mode, target, incoming, columns, part, keys)
                 self._con.execute("COMMIT")
             except BaseException:
-                self._con.execute("ROLLBACK")
+                with contextlib.suppress(Exception):  # não mascarar o erro original
+                    self._con.execute("ROLLBACK")
                 raise
         except DataEngError:
             raise
