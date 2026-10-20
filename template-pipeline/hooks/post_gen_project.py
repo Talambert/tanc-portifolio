@@ -3,8 +3,8 @@
 import shutil
 from pathlib import Path
 
-ORIGENS = [o.strip() for o in "{{ cookiecutter.origens }}".split(",")]
-MOTOR = "{{ cookiecutter.motor_ingestao }}"
+ORIGENS = [o.strip() for o in {{ cookiecutter.origens | tojson }}.split(",")]
+MOTOR = {{ cookiecutter.motor_ingestao | tojson }}
 ROOT = Path.cwd()
 
 
@@ -44,7 +44,7 @@ def main() -> None:
         )
 
     # Dependências: `requirements.txt` só existe com o Artifact Registry (precisa do --extra-index-url).
-    if "{{ cookiecutter.origem_da_biblioteca }}" != "artifact_registry":
+    if {{ cookiecutter.origem_da_biblioteca | tojson }} != "artifact_registry":
         remove("requirements.txt")
 
 

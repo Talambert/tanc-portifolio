@@ -34,3 +34,11 @@ Gera a matriz origem x motor x modo de carga, valida/planeja cada projeto, execu
 ## Não validado
 
 DAG real no Airflow, Cloud Run Job, Dataproc, BigQuery e a instalação da biblioteca via Git/Artifact Registry não foram executados; a checagem é estática (texto do `pyproject.toml`/`Dockerfile`, AST das DAGs).
+
+## Notas de segurança e limites
+
+- **Validação:** `hooks/pre_gen_project.py` recusa, antes de gerar qualquer arquivo, valores fora de um formato estrito (cron, ids de projeto/bucket/dataset, região, versão `X.Y.Z`, URLs `https` sem metacaracteres de shell). Por isso os valores entram nos YAML/TOML/Dockerfile sem escape adicional. Valores de escolha (`tipo_projeto`, `motor_ingestao`, `modo_carga`, `origem_da_biblioteca`) são recusados pelo próprio Cookiecutter. Nomes com `"` falham no Windows antes mesmo do gancho (limite do sistema de arquivos).
+- **Nome longo:** a biblioteca trunca o nome do Cloud Run Job em 63 caracteres; prefira nomes curtos.
+- **Artifact Registry:** `--extra-index-url` mistura o índice privado com o PyPI público e abre espaço para *dependency confusion*. Prefira um índice privado com o nome `dataeng-core` reservado ou, quando possível, `--index-url` único apontando para um repositório virtual.
+- **Imagem:** a imagem base (`python:3.12-slim`) não é fixada por digest e, no modo `git`, o `git` permanece na imagem. Aceitável nesta versão.
+- **dev.yaml e prod.yaml:** vêm das variáveis em `dev.yaml`: `projeto_gcp`, `regiao`, `bucket_bronze`, `dataset_silver`, `dataset_gold`. Em `prod.yaml` só `regiao`, `dataset_silver` e `dataset_gold` vêm das variáveis; projeto, bucket e Service Accounts (`meu-projeto-prod...`, `pipeline-*@...`) são exemplos fixos e fictícios a editar.
