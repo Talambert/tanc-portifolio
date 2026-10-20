@@ -50,7 +50,7 @@ def test_command_carries_config_path_and_environment_verbatim() -> None:
     pipeline = _pipeline([ingest_step("ingere")])  # sem `motor`: padrão cloud_run
     (task,) = plan_tasks(pipeline, config_path=WIN_CONFIG, ambiente="dev")
     assert task.kind == "cloud_run_job"
-    assert task.command == _command("ingere", "dev", WIN_CONFIG)
+    assert task.command == _command("ingere", "dev", "C:/proj/config/pipeline.yaml")  # barras normalizadas
 
 
 def test_run_id_template_renders_to_an_id_accepted_by_the_jobs() -> None:
@@ -174,3 +174,18 @@ def test_planner_does_not_import_airflow() -> None:
     out = subprocess.run([sys.executable, "-c", _BLOCKER], capture_output=True, text=True, timeout=120)
     assert out.returncode == 0, out.stderr
     assert out.stdout.strip() == "ok"
+
+
+def test_command_uses_job_config_path_when_given_and_config_path_otherwise() -> None:
+    pipeline = _pipeline([ingest_step("ingere")])
+    (own,) = plan_tasks(pipeline, config_path="/dags/proj/config/pipeline.yaml", job_config_path="config/pipeline.yaml")
+    assert own.command == _command("ingere", config="config/pipeline.yaml")
+    (fallback,) = plan_tasks(pipeline, config_path="/dags/proj/config/pipeline.yaml")
+    assert fallback.command == _command("ingere", config="/dags/proj/config/pipeline.yaml")
+
+
+def test_job_config_path_is_normalized_to_forward_slashes() -> None:
+    pipeline = _pipeline([ingest_step("ingere")])
+    (task,) = plan_tasks(pipeline, config_path=WIN_CONFIG, job_config_path="config" + chr(92) + "pipeline.yaml")
+    assert task.command == _command("ingere", config="config/pipeline.yaml")
+    assert chr(92) not in "".join(task.command)

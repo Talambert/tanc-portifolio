@@ -29,8 +29,17 @@ class TaskSpec:
     resources: dict[str, Any] = field(default_factory=dict)
 
 
-def plan_tasks(pipeline: Pipeline, *, config_path: str, ambiente: str = "prod") -> list[TaskSpec]:
-    """Uma tarefa por etapa, em ordem topológica estável; `depends_on` segue `depende_de`."""
+def plan_tasks(
+    pipeline: Pipeline, *, config_path: str, ambiente: str = "prod", job_config_path: str | None = None
+) -> list[TaskSpec]:
+    """Uma tarefa por etapa, em ordem topológica estável; `depends_on` segue `depende_de`.
+
+    `config_path`: onde o parse da DAG lê o yaml (use um caminho absoluto resolvido a partir do `__file__` do
+    arquivo da DAG). `job_config_path`: caminho do MESMO arquivo dentro da imagem do job (relativo à WORKDIR ou
+    absoluto Linux); é ele que vai em `--config`. Sem `job_config_path`, usa-se `config_path`. Barras invertidas
+    viram `/` no comando (o job roda em Linux).
+    """
+    job_config = (job_config_path if job_config_path is not None else config_path).replace("\\", "/")
     tasks: list[TaskSpec] = []
     for step in pipeline.ordered_steps():
         if not isinstance(step, IngestaoStep):
@@ -49,7 +58,7 @@ def plan_tasks(pipeline: Pipeline, *, config_path: str, ambiente: str = "prod") 
                     "-m",
                     "dataeng_core.jobs.run_step",
                     "--config",
-                    config_path,
+                    job_config,
                     "--etapa",
                     step.id,
                     "--ambiente",
