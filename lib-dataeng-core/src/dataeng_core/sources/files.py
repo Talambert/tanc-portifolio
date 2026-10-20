@@ -29,6 +29,7 @@ MOTIVO_REGISTRO_INVALIDO = "registro_json_invalido"
 
 _UTF8_FLAG = 0x800
 _ENCRYPTED_FLAG = 0x1
+_CHUNK = 1024 * 1024
 
 
 @dataclass
@@ -37,10 +38,30 @@ class ReadResult:
     rejected: pd.DataFrame
 
 
+def _cell(value: Any) -> str | None:
+    """Contrato de nulo: célula ausente, `NaN` ou vazia vira `None`; o resto vira texto."""
+    if value is None or value == "" or (not isinstance(value, str) and pd.isna(value)):
+        return None
+    return str(value)
+
+
 def _frame(rows: list[list[Any]], columns: list[str]) -> pd.DataFrame:
+    """DataFrame de texto com `None` nos nulos; `object` dá o mesmo resultado no pandas 2 e no 3."""
     if not rows:
-        return pd.DataFrame({c: pd.Series([], dtype="str") for c in columns})
-    return pd.DataFrame(rows, columns=columns, dtype="str")
+        return pd.DataFrame({c: pd.Series([], dtype=object) for c in columns})
+    return pd.DataFrame(rows, columns=columns, dtype=object)
+
+
+def _finalize(
+    header: list[str], rows: list[list[str | None]], rejected: list[tuple[str, str]], schema: SchemaSpec
+) -> ReadResult:
+    """Descarta colunas finais sem nome e sem dados (ex.: `a;b;`), valida o cabeçalho e monta o resultado."""
+    n = len(header)
+    while n > 0 and header[n - 1] == "" and all(r[n - 1] is None for r in rows):
+        n -= 1
+    header = header[:n]
+    _check_header(header, schema)
+    return ReadResult(_frame([r[:n] for r in rows], header), _rejected_frame(rejected))
 
 
 def _rejected_frame(items: list[tuple[str, str]]) -> pd.DataFrame:
@@ -99,7 +120,7 @@ def _read_csv(text: str, delimiter: str, schema: SchemaSpec) -> ReadResult:
 
     reader = csv.reader(lines(), delimiter=delimiter)
     header: list[str] | None = None
-    rows: list[list[str]] = []
+    rows: list[list[str | None]] = []
     rejected: list[tuple[str, str]] = []
     try:
         for fields in reader:
@@ -109,11 +130,10 @@ def _read_csv(text: str, delimiter: str, schema: SchemaSpec) -> ReadResult:
                 continue
             if header is None:
                 header = [f.strip() for f in fields]
-                _check_header(header, schema)
             elif len(fields) != len(header):
                 rejected.append((original, MOTIVO_COLUNAS))
             else:
-                rows.append(fields)
+                rows.append([_cell(f) for f in fields])
     except csv.Error as exc:
         raise SourceError(
             f"CSV malformado perto da linha {reader.line_num}: {exc}; confira `delimitador` e as aspas",
@@ -121,20 +141,21 @@ def _read_csv(text: str, delimiter: str, schema: SchemaSpec) -> ReadResult:
         ) from exc
     if header is None:
         return _empty(schema)
-    return ReadResult(_frame(rows, header), _rejected_frame(rejected))
+    return _finalize(header, rows, rejected, schema)
 
 
 # ------------------------------------------------------------------ json
 
 
+def _json_constant(_name: str) -> None:
+    """`NaN`, `Infinity` e `-Infinity` (aceitos pelo Python) são tratados como nulo."""
+    return None
+
+
 def _json_cell(value: Any) -> str | None:
-    if value is None:
-        return None
-    if isinstance(value, str):
-        return value
     if isinstance(value, bool | dict | list):
         return json.dumps(value, ensure_ascii=False)
-    return str(value)
+    return _cell(value)
 
 
 def _records_to_result(
@@ -146,19 +167,20 @@ def _records_to_result(
     columns: list[str] = []
     for rec in records:
         columns.extend(k for k in rec if k not in columns)
-    _check_header(columns, schema)
     rows = [[_json_cell(rec.get(c)) for c in columns] for rec in records]
-    return ReadResult(_frame(rows, columns), _rejected_frame(rejected))
+    return _finalize(columns, rows, rejected, schema)
 
 
 def _read_jsonl(text: str, schema: SchemaSpec) -> ReadResult:
     records: list[dict[str, Any]] = []
     rejected: list[tuple[str, str]] = []
-    for line in text.splitlines():
+    # só `\n` separa registros: U+2028, \x0b, \x0c, \x1c etc. podem aparecer dentro de strings JSON
+    for line in text.split("\n"):
+        line = line.removesuffix("\r")
         if not line.strip():
             continue
         try:
-            value = json.loads(line)
+            value = json.loads(line, parse_constant=_json_constant)
         except ValueError:
             rejected.append((line, MOTIVO_JSON_INVALIDO))
             continue
@@ -173,7 +195,7 @@ def _read_json_array(text: str, schema: SchemaSpec) -> ReadResult:
     if not text.strip():
         return _empty(schema)
     try:
-        value = json.loads(text)
+        value = json.loads(text, parse_constant=_json_constant)
     except ValueError as exc:
         raise SourceError(
             f"JSON inválido (erro na linha {getattr(exc, 'lineno', '?')}, coluna {getattr(exc, 'colno', '?')})",
@@ -198,20 +220,18 @@ def _read_json_array(text: str, schema: SchemaSpec) -> ReadResult:
 
 def _read_xlsx(data: bytes, schema: SchemaSpec) -> ReadResult:
     try:
-        raw = pd.read_excel(io.BytesIO(data), sheet_name=0, header=None, dtype=str)
+        raw = pd.read_excel(io.BytesIO(data), sheet_name=0, header=None, dtype=object)
     except Exception as exc:  # o pandas/openpyxl levantam tipos variados para arquivo corrompido
         raise SourceError(
             f"arquivo xlsx inválido ou ilegível ({type(exc).__name__}); confira se é mesmo um .xlsx",
             operation="read_file",
         ) from exc
-    raw = raw.dropna(how="all").reset_index(drop=True)
-    if raw.empty:
+    cells = [[_cell(v) for v in linha] for linha in raw.to_numpy(dtype=object).tolist()]
+    cells = [linha for linha in cells if any(v is not None for v in linha)]
+    if not cells:
         return _empty(schema)
-    header = ["" if pd.isna(v) else str(v).strip() for v in raw.iloc[0].tolist()]
-    _check_header(header, schema)
-    body = raw.iloc[1:].reset_index(drop=True)
-    body.columns = pd.Index(header)
-    return ReadResult(body.astype("str"), _rejected_frame([]))
+    header = [(v or "").strip() for v in cells[0]]
+    return _finalize(header, cells[1:], [], schema)
 
 
 # ---------------------------------------------------------------- público
@@ -223,6 +243,11 @@ def read_file(data: bytes, origem: ArquivoOrigem, schema: SchemaSpec) -> ReadRes
     Arquivo vazio ou só com cabeçalho dá zero linhas e sucesso: as colunas vêm do cabeçalho
     (ou do schema, se não houver cabeçalho).
     """
+    if len(origem.delimitador) != 1:
+        raise ConfigError(
+            f"`delimitador` deve ter exatamente 1 caractere (recebido: {len(origem.delimitador)} caracteres)",
+            operation="read_file",
+        )
     if origem.formato == "xlsx":
         return _read_xlsx(data, schema)
     text = _decode(data, origem.encoding)
@@ -254,9 +279,29 @@ def _fix_name(info: zipfile.ZipInfo) -> str:
         return info.filename
 
 
-def extract_zip_members(data: bytes) -> dict[str, bytes]:
-    """Conteúdo dos arquivos do zip por nome (UTF-8 corrigido); ignora pastas e caminhos fora da pasta."""
+def _read_member(zf: zipfile.ZipFile, info: zipfile.ZipInfo, path: str, limit: int) -> bytes:
+    """Lê o membro em pedaços e aborta ao passar de `limit` (o `file_size` do cabeçalho pode mentir)."""
+    msg = f"o membro '{path}' do zip excede o limite de {limit} bytes descomprimidos"
+    if info.file_size > limit:
+        raise SourceError(msg, operation="extract_zip_members")
+    out = bytearray()
+    with zf.open(info) as fh:
+        while chunk := fh.read(min(_CHUNK, limit + 1 - len(out))):
+            out += chunk
+            if len(out) > limit:
+                raise SourceError(msg, operation="extract_zip_members")
+    return bytes(out)
+
+
+def extract_zip_members(
+    data: bytes, *, max_member_bytes: int = 512 * 1024**2, max_total_bytes: int = 1024**3
+) -> dict[str, bytes]:
+    """Conteúdo dos arquivos do zip por nome (UTF-8 corrigido); ignora pastas e caminhos fora da pasta.
+
+    Protege contra zip bomb: limite por membro e total, em bytes descomprimidos.
+    """
     members: dict[str, bytes] = {}
+    total = 0
     try:
         with zipfile.ZipFile(io.BytesIO(data)) as zf:
             for info in zf.infolist():
@@ -269,7 +314,19 @@ def extract_zip_members(data: bytes) -> dict[str, bytes]:
                     raise SourceError(f"o membro '{path}' do zip é criptografado", operation="extract_zip_members")
                 if path in members:
                     raise SourceError(f"o zip tem dois membros com o nome '{path}'", operation="extract_zip_members")
-                members[path] = zf.read(info)
+                if total + info.file_size > max_total_bytes:
+                    raise SourceError(
+                        f"o zip excede o limite total de {max_total_bytes} bytes descomprimidos (no membro '{path}')",
+                        operation="extract_zip_members",
+                    )
+                content = _read_member(zf, info, path, max_member_bytes)
+                total += len(content)
+                if total > max_total_bytes:
+                    raise SourceError(
+                        f"o zip excede o limite total de {max_total_bytes} bytes descomprimidos (no membro '{path}')",
+                        operation="extract_zip_members",
+                    )
+                members[path] = content
     except SourceError:
         raise
     except (zipfile.BadZipFile, NotImplementedError, RuntimeError, EOFError, OSError) as exc:

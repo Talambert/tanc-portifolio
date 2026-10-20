@@ -141,7 +141,7 @@ def test_json_lines_and_json_array() -> None:
     assert list(res.rows.columns) == ["id", "nome", "valor", "extra"]
     assert res.rows["id"].tolist() == ["1", "2"]
     assert res.rows["nome"].tolist()[0] == "Ana"
-    assert pd.isna(res.rows["nome"].tolist()[1])
+    assert res.rows["nome"].tolist()[1] is None
     assert res.rows["valor"].tolist()[1] == "2.5"
     assert res.rows["extra"].tolist()[1] == '{"a": 1}'
     arr = json.dumps([{"id": 1, "nome": "Ana"}, {"id": 2, "nome": "Bia"}]).encode()
@@ -193,7 +193,7 @@ def test_xlsx_first_sheet() -> None:
     assert res.rows["id"].tolist() == ["1", "2"]
     assert res.rows["nome"].tolist() == ["Ana", "Bia"]
     assert res.rows["valor"].tolist()[0] == "2.5"
-    assert pd.isna(res.rows["valor"].tolist()[1])
+    assert res.rows["valor"].tolist()[1] is None
 
 
 def test_xlsx_header_only_and_invalid() -> None:
@@ -248,3 +248,90 @@ def test_zip_slip_member_is_ignored() -> None:
 def test_zip_invalid_is_source_error() -> None:
     with pytest.raises(SourceError, match="zip"):
         extract_zip_members(b"nao e zip")
+
+
+def test_zip_member_over_limit_is_source_error() -> None:
+    data = _zip({"grande.csv": b"x" * 100, "pequeno.csv": b"ok"})
+    with pytest.raises(SourceError, match=r"grande\.csv.*limite de 50 bytes") as exc:
+        extract_zip_members(data, max_member_bytes=50)
+    assert "xxxx" not in str(exc.value)
+
+
+def test_zip_total_over_limit_is_source_error() -> None:
+    data = _zip({"a.csv": b"x" * 60, "b.csv": b"y" * 60})
+    with pytest.raises(SourceError, match=r"limite total de 100 bytes"):
+        extract_zip_members(data, max_member_bytes=100, max_total_bytes=100)
+    assert len(extract_zip_members(data, max_member_bytes=100, max_total_bytes=120)) == 2
+
+
+def test_zip_lying_header_size_is_source_error() -> None:
+    raw = bytearray(_zip({"mentira.csv": b"x" * 1000}))
+    # reduz file_size declarado (cabeçalho local e diretório central) para 10 bytes
+    size = (1000).to_bytes(4, "little")
+    fake = (10).to_bytes(4, "little")
+    while (pos := raw.find(size + size)) != -1:
+        raw[pos + 4 : pos + 8] = fake
+    with pytest.raises(SourceError, match="zip"):
+        extract_zip_members(bytes(raw), max_member_bytes=50)
+
+
+def test_null_contract_is_none_in_every_format() -> None:
+    csv_res = read_file(b"id;nome;valor\n1;;3\n", _origem(), SCHEMA)
+    assert _rows(csv_res) == [["1", None, "3"]]
+    jsonl = read_file(b'{"id": 1, "nome": null, "valor": ""}\n{"id": 2}\n', _origem("jsonl"), SCHEMA)
+    assert _rows(jsonl) == [["1", None, None], ["2", None, None]]
+    xlsx = read_file(_xlsx({"a": [["id", "nome", "valor"], [1, None, 3]]}), _origem("xlsx"), SCHEMA)
+    assert _rows(xlsx) == [["1", None, "3"]]
+
+
+def test_jsonl_u2028_inside_string_does_not_split_record() -> None:
+    # U+2028 e U+0085 são separadores de linha para str.splitlines(), mas válidos dentro de strings JSON
+    data = ('{"id": 1, "nome": "a b\u0085c"}\r\n{"id": 2, "nome": "z"}\r\n').encode()
+    res = read_file(data, _origem("jsonl"), SCHEMA)
+    assert _rows(res) == [["1", "a b\u0085c"], ["2", "z"]]
+    assert res.rejected.empty
+
+
+def test_trailing_empty_header_column_is_dropped() -> None:
+    res = read_file(b"id;nome;\n1;Ana;\n2;Bia;\n", _origem(), SCHEMA)
+    assert list(res.rows.columns) == ["id", "nome"]
+    assert _rows(res) == [["1", "Ana"], ["2", "Bia"]]
+    xlsx = read_file(_xlsx({"a": [["id", "nome", None], [1, "Ana", None]]}), _origem("xlsx"), SCHEMA)
+    assert list(xlsx.rows.columns) == ["id", "nome"]
+    assert _rows(xlsx) == [["1", "Ana"]]
+
+
+def test_empty_header_name_with_data_or_in_the_middle_is_still_error() -> None:
+    with pytest.raises(SourceError, match="vazio"):
+        read_file(b"id;nome;\n1;Ana;dado\n", _origem(), SCHEMA)
+    with pytest.raises(SourceError, match="vazio"):
+        read_file(_xlsx({"a": [["id", None, "valor"], [1, "x", 2]]}), _origem("xlsx"), SCHEMA)
+
+
+def test_multichar_delimiter_is_config_error() -> None:
+    origem = _origem().model_copy(update={"delimitador": ";;"})
+    with pytest.raises(ConfigError, match="delimitador"):
+        read_file(b"id;;nome\n", origem, SCHEMA)
+
+
+def test_json_nan_and_infinity_are_null() -> None:
+    res = read_file(b'{"id": 1, "valor": NaN, "nome": -Infinity}\n', _origem("jsonl"), SCHEMA)
+    assert _rows(res) == [["1", None, None]]
+    arr = read_file(b'[{"id": 1, "valor": Infinity}]', _origem("json"), SCHEMA)
+    assert arr.rows["valor"].tolist() == [None]
+
+
+def test_leading_zeros_are_preserved_in_csv_and_xlsx() -> None:
+    res = read_file(b"id;nome;valor\n007;00123;0,50\n", _origem(), SCHEMA)
+    assert _rows(res) == [["007", "00123", "0,50"]]
+    xlsx = read_file(_xlsx({"a": [["id", "nome", "valor"], ["007", "00123", "0,50"]]}), _origem("xlsx"), SCHEMA)
+    assert _rows(xlsx) == [["007", "00123", "0,50"]]
+
+
+def test_zip_deflated_bomb_is_stopped_by_member_limit() -> None:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("bomba.csv", b"0" * 5_000_000)
+    assert len(buf.getvalue()) < 50_000
+    with pytest.raises(SourceError, match=r"bomba\.csv.*limite de 1000000 bytes"):
+        extract_zip_members(buf.getvalue(), max_member_bytes=1_000_000)
