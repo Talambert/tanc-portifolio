@@ -80,7 +80,7 @@ Ordem das dependências: `base → storage, warehouse, pubsub → sources, trans
 
 - **`Storage`:** `read`, `write`, `list`, `exists`, `delete`.
 - **`Warehouse`:** `execute_ddl`, `run_sql` (arquivos e instruções, com parâmetros), `create_or_replace_view`, `load` (modos `append`, `overwrite_partition`, `merge`), `query`, `table_exists`, `row_count`.
-- **`PubSubClient`:** `pull(assinatura, max_mensagens, timeout)`, `ack(ids)` e `nack(ids)`. A versão local é um Pub/Sub falso em memória.
+- **`PubSubClient`:** `pull(assinatura, max_mensagens, timeout)`, `ack(ids)` e `nack(ids)`. A versão local é um Pub/Sub falso em memória. O `GcpPubSub` não informa o backlog (fica `NULL`; Tarefa 18).
 - **Limite do DuckDB:** ele não fala o dialeto do BigQuery. DDLs, DMLs e views do projeto são **validados na sintaxe** com `sqlglot` (dialeto BigQuery) e só executados no BigQuery real. Os SQL de **exemplo e de teste** são escritos num **subconjunto portátil**, que também roda no DuckDB.
 
 ### 4.4 Transformação em dois motores
@@ -89,9 +89,9 @@ A transformação é **declarativa** (no YAML) e tem duas implementações: Pyth
 
 ### 4.5 Regras de execução
 
-- Cada rodada tem um `run_id`. A carga é **idempotente**: reexecutar não duplica.
+- Cada rodada tem um `run_id`, que **precisa começar por `AAAAMMDD`** (ou o chamador informa `ingestion_date`); sem data a execução falha (Tarefa 12). No Airflow, o `run_id` nativo é recusado e a DAG usa `{{ ts_nodash }}` (Tarefa 16). A carga é **idempotente**: reexecutar não duplica.
 - **Bronze:** `<bucket>/bronze/<nome>/ingestion_date=AAAA-MM-DD/run_id=<id>/<arquivo>`, com um manifesto (tamanho e SHA-256).
-- **Silver:** tabela particionada por `_ingestion_date`, com as colunas de controle `_run_id`, `_source_file` e `_loaded_at`.
+- **Silver:** tabela particionada por `_ingestion_date`, com as colunas de controle `_run_id`, `_source_file`, `_loaded_at` e `_ingestion_date` (item 8 da seção 14).
 - **Quarentena:** `<tabela>_rejeitados`, com a linha original e o motivo.
 - **Controle:** `_controle_execucoes` (run_id, etapa, status, linhas lidas, gravadas e rejeitadas, backlog restante, resultado da qualidade).
 - **Pub/Sub:** puxa até `max_mensagens` ou `tempo_maximo_s`, grava em lotes JSON no bronze **com os metadados da mensagem** (id, horário de publicação, atributos) e **só então confirma**. Se a gravação falhar, nada é confirmado e as mensagens voltam. Como a entrega é "pelo menos uma vez", a silver deduplica por `message_id`. O backlog restante é registrado na tabela de controle.
@@ -100,7 +100,7 @@ A transformação é **declarativa** (no YAML) e tem duas implementações: Pyth
 
 ### 4.6 API pública e versões
 
-A API pública é: pontos de entrada de `jobs`, o esquema do `pipeline.yaml`, o registro de tipos de etapa e as interfaces `Storage`, `Warehouse` e `PubSubClient`. Versionamento semântico, `CHANGELOG.md` e `schema_version` no YAML. Uma versão nova da biblioteca continua lendo o `schema_version` anterior por pelo menos uma versão menor, com aviso de descontinuação.
+A API pública é: pontos de entrada de `jobs`, o esquema do `pipeline.yaml`, o registro de tipos de etapa e as interfaces `Storage`, `Warehouse` e `PubSubClient`. Versionamento semântico, `CHANGELOG.md` e `schema_version` no YAML. Uma versão nova da biblioteca continua lendo o `schema_version` anterior por pelo menos uma versão menor, com aviso de descontinuação. *(Na 0.1.0 não existe versão anterior: qualquer `schema_version` diferente de 1 falha com mensagem clara; ruling R11.)*
 
 ## 5. Template `template-pipeline`
 
@@ -110,8 +110,8 @@ A API pública é: pontos de entrada de `jobs`, o esquema do `pipeline.yaml`, o 
 |---|---|
 | `nome_projeto` | texto, vira o nome do repositório e do pacote |
 | `tipo_projeto` | `ingestao`, `relatorio` ou `hibrido` |
-| `origens` | para `ingestao` e `hibrido`: uma ou mais entre `arquivo`, `api` e `pubsub` |
-| `motor_ingestao` | `cloud_run`, `dataproc` ou `ambos` (para `ingestao` e `hibrido`) |
+| `origens` | para `ingestao` e `hibrido`: uma ou mais entre `arquivo`, `api` e `pubsub`, como **texto separado por vírgula** (ex.: `arquivo,pubsub`; ruling R2) |
+| `motor_ingestao` | `cloud_run`, `dataproc` ou `ambos` (para `ingestao` e `hibrido`). `ambos` é **variável do template**, não valor do `pipeline.yaml`: gera dois YAMLs e duas DAGs (ruling da Tarefa 22) |
 | `usa_python`, `usa_spark` | para `relatorio` e `hibrido`: habilitam as etapas `python` e `spark` (e a pasta `spark/`) |
 | `modo_carga` | `append`, `overwrite_particao` ou `merge` |
 | `projeto_gcp`, `regiao` | texto |
@@ -236,7 +236,7 @@ execucao_padrao:
 
 ### 5.4 DAG
 
-`dags/pipeline.py` tem poucas linhas e chama `dataeng_core.airflow.build_dag("config/pipeline.yaml")`. A biblioteca cria as tarefas por tipo: `sql`, `view` e `qualidade` viram operadores do BigQuery (sem contêiner); `ingestao` e `python` viram Cloud Run Job; `spark` e a ingestão em Dataproc viram lote do Dataproc Serverless. Um parâmetro permite acrescentar tarefas extras. Na ingestão com `motor: ambos`, geram-se duas DAGs (`<nome>_cloud_run` e `<nome>_dataproc`), o que permite comparar os motores.
+`dags/pipeline.py` tem poucas linhas e chama `dataeng_core.airflow.build_dag("config/pipeline.yaml")`. A biblioteca cria as tarefas por tipo: `sql` e `view` viram tarefas do BigQuery (sem contêiner); `ingestao`, `python` e **`qualidade`** viram Cloud Run Job (a `qualidade` executa `run_step`, porque `run_checks` opera sobre um DataFrame; Tarefa 22); `spark` e a ingestão ou `python` em Dataproc viram lote do Dataproc Serverless, que **exige uma imagem do lote com o `dataeng-core`** (`execucao_padrao.dataproc.container_image`) e tem entrypoints configuráveis (Tarefas 21 e 22). Um parâmetro permite acrescentar tarefas extras. Com `motor_ingestao=ambos` no template, geram-se dois YAMLs e duas DAGs (`<nome>_cloud_run` e `<nome>_dataproc`), que escrevem nas mesmas tabelas, o que permite comparar os motores.
 
 ### 5.5 Ganchos
 
@@ -295,7 +295,7 @@ O `combustiveis-pipeline-gcp` passa a ser o primeiro consumidor real: o plano de
 | Entrega "pelo menos uma vez" do Pub/Sub e fila acumulada | Deduplicação por `message_id` e backlog na tabela de controle |
 | Repositórios gerados envelhecem (sem atualização do template) | A lógica mora na biblioteca, versionada. O template fica fino |
 | Duas implementações da transformação (pandas e PySpark) podem divergir | Casos de equivalência comuns, rodando no CI |
-| Docker não instalado, e Airflow não roda no Windows | Builds de imagem e importação das DAGs no CI em Linux |
+| Docker não instalado, e Airflow não roda no Windows | Builds de imagem e importação das DAGs no CI em Linux. **Nada disso foi executado**: o CI nunca rodou no GitHub e o PySpark nunca foi executado no desenvolvimento |
 | Mudança de API do Cloud Run, do Dataproc, do Composer ou do Pub/Sub | Isolar o acesso em `airflow`, `warehouse`, `storage` e `pubsub`, de modo que uma mudança afete um lugar só |
 
 ## 12. Candidatos futuros
@@ -312,3 +312,19 @@ Tipo de etapa `dbt`; views materializadas; Pub/Sub por assinatura direta no BigQ
 | 4 | Guias, CI completo e adaptação do `combustiveis-pipeline-gcp` |
 
 **Próximo passo:** revisão desta especificação. Aprovada, vem o **plano de implementação** (por etapas, com testes primeiro), e só então as pastas e o código.
+
+## 14. Atualizações pós-implementação
+
+Pontos em que o código implementado e os rulings ratificados prevalecem sobre o texto original (a origem de cada um está entre parênteses; os rulings completos ficam no registro de execução do plano). Os trechos acima já foram corrigidos nos itens 1 a 5; os demais ficam só aqui.
+
+1. `qualidade` roda como Cloud Run Job executando `run_step`, não como operador do BigQuery, inclusive na DAG Dataproc (Tarefa 22; seção 5.4).
+2. Dataproc para `ingestao` e `python` exige imagem do lote com o `dataeng-core` e entrypoints configuráveis; a etapa `spark` exige `script_base_uri` ou `main_python_file_uri` (Tarefas 21 e 22; seção 5.4).
+3. `motor: ambos` é variável do template (dois YAMLs, duas DAGs), não do modelo (Tarefa 22; seção 5.1).
+4. O `run_id` precisa de data (ou `ingestion_date` explícita) e o do Airflow é mapeado para `{{ ts_nodash }}` (Tarefas 12 e 16; seção 4.5).
+5. `origens` é texto separado por vírgula (R2); `schema_version` diferente de 1 falha (R11); `StepResult.status` inclui `nao_executada` (R12).
+6. Células vazias, `NaN` e `null` viram `None` ao ler arquivos (Tarefa 7). A origem `arquivo` aceita também `https://` (Tarefa 12).
+7. Scripts procedurais do BigQuery (`BEGIN`, `IF`, `LOOP`...) não são suportados e falham de forma explícita; a etapa `sql` não é atômica e para na primeira falha (Tarefas 11 e 20). Todo arquivo citado no YAML precisa ficar dentro da pasta do projeto (Tarefa 20).
+8. A silver tem a coluna de controle `_ingestion_date` além das três da seção 4.5; `_controle_execucoes` só acrescenta linhas (Tarefa 12).
+9. Pub/Sub: `overwrite_particao` é recusado; a silver faz `merge` por `message_id`; a confirmação vem depois de bronze, silver, quarentena, qualidade e DML; `merge` por chave de negócio é incondicional entre execuções (Tarefa 19).
+10. `append` da ingestão é idempotente por `run_id` (Tarefa 12); `LocalWarehouse` fixa o fuso em UTC (Tarefa 23).
+11. O motor PySpark, o BigQuery, o Pub/Sub, o Airflow, o Cloud Run, o Dataproc, o `docker build` e os fluxos do GitHub Actions **não foram executados** (Tarefas 14, 16, 18, 21, 22, 24). Ver as tabelas de limitações dos READMEs.

@@ -64,9 +64,13 @@ Cada pasta deste repositório é um projeto independente, com o próprio README,
 | 🛡️ | **[Agente de Observabilidade de Pipelines](combustiveis-agente-observabilidade/)** | Agente que investiga falhas do Airflow e do dbt, explica a causa provável e propõe a correção em um PR em rascunho para revisão humana. | `Vertex AI` `Gemini` `Airflow` `dbt` | 🚧 Planejado |
 | 🛡️ | **[Portal de Governança de Dados](portal-governanca-dados/)** | Portal web e biblioteca **genéricos** para qualquer dataset do BigQuery, com três módulos: sugere metadados, propõe regras de data quality e responde perguntas sobre os dados com citação da fonte (RAG). Usa Dataplex e Gemini, com revisão humana. Roda no Cloud Run. | `Dataplex` `BigQuery` `Vertex AI` `RAG` `Streamlit` `Cloud Run` | 🔨 Protótipo (simulação) |
 | 🧾 | **[Extração de Documentos com IA](extracao-documentos-ia/)** | Extrai dados estruturados de PDFs e planilhas sem padrão, valida cada campo e envia o duvidoso para quarentena. | `Vertex AI` `Gemini` `Pydantic` `BigQuery` | 🚧 Planejado |
+| 🧩 | **[Biblioteca de Engenharia de Dados (`dataeng-core`)](lib-dataeng-core/)** | Biblioteca Python versionada com o que é comum a qualquer pipeline: ingestão de arquivo, API e Pub/Sub, transformação declarativa (pandas e PySpark), qualidade, SQL parametrizado, montagem de DAG do Airflow e a CLI `dataeng`. | `Python` `pandas` `PySpark` `DuckDB` `Airflow` | 🔨 Implementada e testada local; GCP não validado |
+| 🏭 | **[Template de Pipeline (`template-pipeline`)](template-pipeline/)** | Gerador Cookiecutter de repositórios de pipeline (`ingestao`, `relatorio` ou `hibrido`): configuração em YAML, SQL, DAG e testes prontos, com [guia de novo pipeline](template-pipeline/docs/guia-novo-pipeline.md). Roda local de ponta a ponta, sem nuvem. | `Cookiecutter` `Python` `BigQuery` `Cloud Run` `Dataproc` | 🔨 Implementado e testado local; GCP não validado |
 | 🔜 | *Próximo projeto* | *Em breve…* | | 🚧 Planejado |
 
 > ⛽ Os projetos `combustiveis-*` formam **uma única história**: do arquivo cru da ANP ao painel de decisão e, depois, a uma IA que responde perguntas sobre os dados com segurança.
+>
+> 🧩 `lib-dataeng-core` e `template-pipeline` são a **plataforma de templates**: a biblioteca guarda o que se repete entre pipelines e o template gera um repositório novo a partir dela. Foram implementados e testados com a versão local (DuckDB e Pub/Sub em memória); a execução no GCP, no Airflow e no Spark **ainda não foi validada**. O desenho está na [especificação](docs/superpowers/specs/2026-10-19-templates-e-bibliotecas-de-engenharia-design.md).
 
 ---
 
@@ -130,6 +134,8 @@ tanc-portifolio/
 ├── 📁 combustiveis-agente-observabilidade/  🛡️  Agente que diagnostica falhas de pipeline
 ├── 📁 portal-governanca-dados/      🛡️  Portal de governança: metadados, data quality e catálogo (RAG)
 ├── 📁 extracao-documentos-ia/       🧾  Extração estruturada de documentos
+├── 📁 lib-dataeng-core/             🧩  Biblioteca comum de engenharia de dados (dataeng-core)
+├── 📁 template-pipeline/            🏭  Template Cookiecutter de pipelines (ingestao, relatorio, hibrido)
 ├── 📁 docs/                         🏗️  Diagrama de arquitetura (PNG, SVG e gerador)
 ├── 📁 planos/                       🗺️  Roadmap e planos de desenvolvimento
 └── 📄 README.md                     ← você está aqui

@@ -2,6 +2,8 @@
 
 Template [Cookiecutter](https://cookiecutter.readthedocs.io/) de pipelines de engenharia de dados sobre a biblioteca `dataeng-core` (`../lib-dataeng-core`). Gera três tipos de projeto: **`ingestao`** (origens `arquivo`, `api` e `pubsub`), **`relatorio`** (view, `MERGE`, `python`/`spark` opcionais e `qualidade` sobre dados de exemplo semeados) e **`hibrido`** (os dois numa só `pipeline.yaml`).
 
+Para ir de zero a uma DAG validada, siga o **[guia: criar um novo pipeline](docs/guia-novo-pipeline.md)**. Seus comandos marcados são executados por `tests/test_docs_commands.py`.
+
 ```bash
 pip install cookiecutter
 cookiecutter template-pipeline            # pergunta as variáveis
@@ -37,7 +39,7 @@ cookiecutter template-pipeline --no-input tipo_projeto=hibrido origens=arquivo u
 - **Tabela base do `hibrido`:** o relatório lê a silver da primeira origem disponível, na ordem `arquivo`, `api`, `pubsub` (`registros_arquivo`, `registros_api`, `eventos`); todas têm `id`, `nome` e `valor`.
 - **DAG única por motor:** o `hibrido` usa o mesmo esquema da `ingestao`. Com um só motor, `dags/pipeline.py`; com `motor_ingestao=ambos`, `config/pipeline.yaml` (ingestão no Cloud Run) e `config/pipeline_dataproc.yaml` (igual, com `motor: dataproc`), e duas DAGs `<nome>_cloud_run` e `<nome>_dataproc`, ambas com o relatório inteiro. Não há `motor_relatorio`: `sql`/`view` viram tarefas do BigQuery, `python` e `qualidade` o Cloud Run Job, `spark` o lote do Dataproc.
 - **`motor_ingestao=ambos`:** as duas DAGs gravam nas MESMAS tabelas. Não ative as duas ao mesmo tempo (ou escalone os agendamentos); com `modo_carga=append` e `run_id` diferentes as ingestões duplicariam a silver (use `merge`).
-- **`qualidade` roda sempre no Cloud Run** (também na DAG Dataproc; `dataeng plan` mostra `motor=cloud_run` para ela); o texto antigo da especificação (operador do BigQuery) está desatualizado.
+- **`qualidade` roda sempre no Cloud Run** (também na DAG Dataproc; `dataeng plan` mostra `motor=cloud_run` para ela).
 - **Spark:** a etapa é a última do YAML. `dataeng run local` precisa de `spark-submit` + Java; sem eles ele executa as outras etapas e falha só nela. Os testes do projeto gerado excluem a etapa `spark` da execução local; o template só testa geração, `validate-config` e `plan` para ela. **Spark nunca foi executado no desenvolvimento deste template.**
 - **Dataproc exige imagem:** `execucao_padrao.dataproc.container_image` (e, com `spark`, `script_base_uri`) vêm como EXEMPLOS a trocar; o planejamento da DAG recusa a ingestão/`python` em Dataproc sem imagem.
 - **SQL portátil:** o SQL de relatório e os DDLs usam só o que DuckDB (run local) e BigQuery aceitam: `CREATE OR REPLACE ... AS SELECT`, `MERGE`, `UNION ALL`, `COUNT/SUM/AVG`, tipos `STRING`, `INT64`, `TIMESTAMP`, `DECIMAL(p, s)` e `DATE` (nunca `VARCHAR`, `TIMESTAMPTZ`, `BIGINT`, `INTEGER`: existem no DuckDB mas não no BigQuery). Um teste varre todos os `.sql` gerados atrás desses tipos e os parseia com sqlglot nos dois dialetos. Sintaxe e tipos não equivalem a execução: o SQL nunca rodou no BigQuery real. `TIMESTAMP` no DuckDB é sem fuso (UTC); a biblioteca fixa o fuso da conexão local em UTC.
@@ -61,9 +63,13 @@ Gera a matriz origem x motor x modo de carga (ingestão), `tipo_projeto` x `usa_
 
 `tests/test_hybrid_anp.py` é o **aceite híbrido da ANP**: gera um `hibrido`, troca `pipeline.yaml`, ambiente, schemas e SQL pelos de `tests/fixtures/anp/` (amostra 100% sintética de 49 linhas, com uma coluna `uf` a mais que a da biblioteca), roda `dataeng plan` e `dataeng run local` duas vezes e confere: silver com 44 linhas, 3 linhas na quarentena, view de preço médio por UF e agregado por `MERGE` com valores calculados à mão, ausência de duplicatas e uma linha de controle por etapa por execução. No Windows, o caminho do bronze local (`.local/...`) pode estourar o limite de 260 caracteres com pastas temporárias longas; por isso o projeto do aceite se chama `anp`.
 
+`tests/test_docs_commands.py` gera um projeto e executa os blocos `<!-- testar -->` do guia (`validate-config`, `plan`, `run local`), exigindo código de saída 0.
+
 ## Não validado
 
-DAG real no Airflow, Cloud Run Job, Dataproc, BigQuery (inclusive o SQL do relatório), Spark/PySpark (nunca executado), Pub/Sub real (assinatura, ack e reentrega) e a instalação da biblioteca via Git/Artifact Registry não foram executados; a checagem é estática (texto do `pyproject.toml`/`Dockerfile`, AST das DAGs).
+O template foi implementado e testado com a versão local; a tabela completa de limitações está no [README da biblioteca](../lib-dataeng-core/README.md#limitações-e-o-que-não-foi-validado). Aqui, em resumo:
+
+DAG real no Airflow, Cloud Run Job, Dataproc, BigQuery (inclusive o SQL do relatório), Spark/PySpark (nunca executado), Pub/Sub real (assinatura, ack e reentrega) e a instalação da biblioteca via Git/Artifact Registry não foram executados; a checagem é estática (texto do `pyproject.toml`/`Dockerfile`, AST das DAGs). Também nunca foram executados o `docker build` da imagem e os fluxos do GitHub Actions (`.github/workflows/template-pipeline.yml`); a versão fixada `dataeng-core-v0.1.0` ainda não existe como tag.
 
 Motor Dataproc (`ingestao`/`python`): exige uma IMAGEM do lote com o `dataeng-core` instalado (suposição de infraestrutura, a biblioteca não a cria). Informe `execucao_padrao.dataproc.container_image` no `pipeline_dataproc.yaml` (ou `ingest_entrypoint_uri`/`run_step_entrypoint_uri`); sem isso o planejamento da DAG falha com erro explicativo. A etapa `qualidade` roda sempre no Cloud Run, mesmo nessa DAG.
 

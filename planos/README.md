@@ -27,6 +27,14 @@ Fase 8 (acabamento dos projetos 1 a 4) está no fim deste arquivo. Os projetos 5
 
 > 🤖 Os projetos 5 e 6 usam **somente o Vertex AI** (Gemini) e dependem dos marts do projeto 2. Não dependem do Airflow (projeto 3) nem do Power BI (projeto 4).
 
+### 🧩 Plataforma de templates e bibliotecas de engenharia de dados
+
+| # | Projeto (pasta) | Especificação | Plano | Estado |
+|:-:|---|---|---|---|
+| 10 | `lib-dataeng-core` e `template-pipeline` | [especificação de desenho](../docs/superpowers/specs/2026-10-19-templates-e-bibliotecas-de-engenharia-design.md) | [plano de implementação](../docs/superpowers/plans/2026-10-19-templates-e-bibliotecas-de-engenharia.md) | Implementado e testado com a versão local; GCP, Airflow e Spark reais não validados |
+
+> O projeto 10 é **independente** dos projetos 1 a 9. O `combustiveis-pipeline-gcp` (projeto 1) é o primeiro consumidor previsto: o plano dele é ajustado para usar o template. Os planos deste projeto ficam em `docs/superpowers/`, e não nesta pasta.
+
 ## Fluxo de ponta a ponta
 
 ```text
