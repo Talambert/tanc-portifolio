@@ -72,6 +72,23 @@ Cada pasta deste repositório é um projeto independente, com o próprio README,
 >
 > 🧩 `lib-dataeng-core` e `template-pipeline` são a **plataforma de templates**: a biblioteca guarda o que se repete entre pipelines e o template gera um repositório novo a partir dela. O primeiro uso real é o [`combustiveis-pipeline-gcp`](combustiveis-pipeline-gcp/): foi **gerado pelo `template-pipeline`** (tipo `hibrido`) e **usa a `dataeng-core`**. O template gera o repositório, a biblioteca executa (validar, planejar e rodar) e a DAG é montada a partir do mesmo `pipeline.yaml`; hoje isso roda local, com amostra sintética. Foram implementados e testados com a versão local (DuckDB e Pub/Sub em memória); a execução no GCP, no Airflow e no Spark **ainda não foi validada**, e o CI (GitHub Actions) e o `docker build` **nunca foram executados**. O desenho está na [especificação](docs/superpowers/specs/2026-10-19-templates-e-bibliotecas-de-engenharia-design.md).
 
+### ⚠️ Plataforma de templates: o que ainda não foi validado de verdade
+
+A biblioteca e o template foram testados **localmente** (DuckDB, pasta local, Pub/Sub em memória e clientes falsos das APIs do Google), com testes automatizados e uma amostra **sintética** de dados. Isto **nunca foi executado** e deve ser tratado como não validado:
+
+| Parte | Situação |
+|---|---|
+| **BigQuery, Cloud Storage e Pub/Sub reais** | Só com clientes falsos. O SQL das cargas (transação, `MERGE`, `DELETE` com `EXISTS`) e o `ack`/`nack` do Pub/Sub nunca rodaram no serviço real. Os testes de contrato `@pytest.mark.gcp` existem e ficam pulados até alguém fornecer credenciais e recursos de teste. |
+| **Airflow** | A DAG é montada por um planejador testado sem Airflow. A montagem com o Airflow real, o provider do Google e o Jinja dos operadores nunca foi executada. |
+| **Cloud Run Job e Dataproc** | Nunca executados. O Dataproc exige uma imagem de lote própria com a biblioteca instalada; os entrypoints são suposições de infraestrutura configuráveis. |
+| **Spark (PySpark)** | O motor de transformação em Spark **nunca foi executado**: não havia Java nem PySpark no ambiente de desenvolvimento. A equivalência com o motor pandas só será provada no CI. |
+| **`docker build`** | A imagem do template nunca foi construída. |
+| **CI (GitHub Actions)** | Os fluxos nunca rodaram; o primeiro run pode falhar (principalmente nos jobs de Spark e Airflow). Versões e constraints foram conferidas apenas por consulta, não por execução. |
+| **Dados reais da ANP** | Nunca processados. O cabeçalho do schema de origem do `combustiveis-pipeline-gcp` vem do layout público lembrado, não de um arquivo real. |
+| **Instalação da biblioteca por Git ou Artifact Registry** | Nunca exercitada (a tag `dataeng-core-v0.1.0` ainda não existe). |
+
+Detalhes e limites conhecidos estão no [README da biblioteca](lib-dataeng-core/README.md#limitações-e-o-que-não-foi-validado) e no [do template](template-pipeline/README.md).
+
 ---
 
 ## 🏗️ Arquitetura geral
