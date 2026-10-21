@@ -68,6 +68,7 @@ def load_project(config: Path, ambiente: str, params: dict[str, str]) -> tuple[P
         raise ConfigError(
             f"arquivo de configuração não encontrado: {config}; informe o caminho do pipeline.yaml em --config",
             operation="cli",
+            fix="Confira o caminho passado em --config (o pipeline.yaml do projeto) e o diretório de execução.",
         )
     pipeline = load_pipeline(config, ambiente=ambiente, extra_params=params)
     root = project_root_of(config)
@@ -196,6 +197,7 @@ def run_job(
                 f"a etapa '{step.id}' é do tipo '{step.tipo}', mas este ponto de entrada só executa etapas do "
                 f"tipo '{required_type}'; para outros tipos use `python -m dataeng_core.jobs.run_step`",
                 operation=prog,
+                fix="Passe em --etapa uma etapa do tipo aceito por este ponto de entrada, ou use o run_step geral.",
             )
         return execute(pipeline, env, root, args.run_id, [step.id], secrets, prepare)
 

@@ -12,9 +12,11 @@ class DataEngError(Exception):
     what: str = "Ocorreu um erro inesperado na biblioteca."
     fix: str = "Consulte o detalhe e a referência do erro e tente novamente."
 
-    def __init__(self, detail: str = "", *, operation: str = "") -> None:
+    def __init__(self, detail: str = "", *, operation: str = "", fix: str | None = None) -> None:
         self.detail = detail
         self.operation = operation
+        if fix is not None:  # orientação própria desta ocorrência; sem ela vale o padrão da classe
+            self.fix = fix
         self.reference: str = secrets.token_hex(4)
         parts = [f"[{self.reference}] {self.title}"]
         if operation:

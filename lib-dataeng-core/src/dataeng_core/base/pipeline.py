@@ -430,7 +430,11 @@ class Pipeline(_Model):
             if s.id == step_id:
                 return s
         ids = ", ".join(s.id for s in self.etapas)
-        raise ConfigError(f"etapa '{step_id}' não existe; etapas do pipeline: {ids}", operation="pipeline.get")
+        raise ConfigError(
+            f"etapa '{step_id}' não existe; etapas do pipeline: {ids}",
+            operation="pipeline.get",
+            fix="Passe em --etapa um dos ids de etapa listados acima (campo `id` das etapas no pipeline.yaml).",
+        )
 
 
 # ------------------------------------------------------------- carregamento
@@ -573,6 +577,7 @@ def load_pipeline(
         raise ConfigError(
             f"ambiente '{ambiente}' não encontrado em {ambientes}; disponíveis: {', '.join(existentes) or 'nenhum'}",
             operation="load_pipeline",
+            fix="Use --ambiente com o nome de um arquivo existente em config/ambientes/ (sem a extensão .yaml).",
         )
     env = load_environment(env_file)
     raw = load_yaml(config_path)

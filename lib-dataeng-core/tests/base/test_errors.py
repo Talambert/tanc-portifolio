@@ -20,3 +20,9 @@ def test_each_error_has_actionable_text(cls: type[errors.DataEngError]) -> None:
     assert issubclass(cls, errors.DataEngError)
     assert cls.title and cls.what and cls.fix
     assert re.fullmatch(r"[0-9a-f]{8}", err.reference)
+
+
+def test_fix_per_instance_overrides_the_class_default() -> None:
+    assert errors.ConfigError("x", fix="faça isto").fix == "faça isto"
+    assert errors.ConfigError("x").fix == errors.ConfigError.fix
+    assert errors.ConfigError.fix != "faça isto"  # a classe não é alterada

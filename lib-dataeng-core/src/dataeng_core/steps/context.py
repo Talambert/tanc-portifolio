@@ -67,6 +67,7 @@ def validate_run_id(run_id: str) -> str:
             "run_id inválido: use de 1 a 128 caracteres entre letras, dígitos, '_', '.' e '-', "
             "começando por letra ou dígito.",
             operation="build_context",
+            fix="Passe um run_id válido em --run-id (ex.: 20260301T060000-aaaaaa) ou omita-o para gerar um.",
         )
     return run_id
 

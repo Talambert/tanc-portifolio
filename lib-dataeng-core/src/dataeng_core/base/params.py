@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Literal, TypeVar, cast
 
 import yaml
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from dataeng_core.base.errors import ConfigError
 
@@ -54,6 +54,12 @@ def load_yaml(path: Path) -> dict[str, Any]:
         where = f", linha {mark.line + 1}" if mark is not None else ""
         problem = getattr(exc, "problem", None) or "sintaxe inválida"
         raise ConfigError(f"arquivo {path}{where}: {problem}", operation="load_yaml") from exc
+    except UnicodeDecodeError as exc:
+        raise ConfigError(
+            f"arquivo {path}: o arquivo precisa estar em UTF-8 (byte inválido na posição {exc.start})",
+            operation="load_yaml",
+            fix="Reabra o arquivo no editor e salve-o com a codificação UTF-8 (sem alterar o conteúdo).",
+        ) from exc
     except OSError as exc:
         raise ConfigError(f"não foi possível ler {path}: {exc.strerror}", operation="load_yaml") from exc
     if data is None:
@@ -64,7 +70,9 @@ def load_yaml(path: Path) -> dict[str, Any]:
 
 
 class Environment(BaseModel):
-    """Ambiente de execução (local ou GCP)."""
+    """Ambiente de execução (local ou GCP). Campo desconhecido (ex.: erro de digitação) é recusado."""
+
+    model_config = ConfigDict(extra="forbid")
 
     modo: Literal["local", "gcp"]
     projeto_gcp: str
@@ -86,5 +94,14 @@ def load_environment(path: Path) -> Environment:
     try:
         return Environment.model_validate(data)
     except ValidationError as exc:
-        campos = ", ".join(".".join(str(p) for p in e["loc"]) + f" ({e['msg']})" for e in exc.errors())
+        valid = ", ".join(Environment.model_fields)
+        campos = ", ".join(
+            ".".join(str(p) for p in e["loc"])
+            + (
+                f" (campo desconhecido; campos válidos: {valid})"
+                if e["type"] == "extra_forbidden"
+                else f" ({e['msg']})"
+            )
+            for e in exc.errors()
+        )
         raise ConfigError(f"arquivo {path}: {campos}", operation="load_environment") from exc

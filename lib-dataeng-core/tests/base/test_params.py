@@ -67,3 +67,24 @@ def test_load_environment_invalid_raises_config_error(tmp_path: Path) -> None:
     with pytest.raises(ConfigError) as exc:
         load_environment(f)
     assert "env.yaml" in str(exc.value)
+
+
+def test_load_yaml_non_utf8_is_actionable(tmp_path: Path) -> None:
+    f = tmp_path / "latin.yaml"
+    f.write_bytes("nome: açúcar\n".encode("latin-1"))
+    with pytest.raises(ConfigError) as exc:
+        load_yaml(f)
+    assert "UTF-8" in exc.value.detail and "latin.yaml" in exc.value.detail
+    assert "UTF-8" in exc.value.fix
+
+
+def test_environment_rejects_unknown_field_naming_it_and_the_valid_ones(tmp_path: Path) -> None:
+    f = tmp_path / "env.yaml"
+    f.write_text(
+        "modo: local\nprojeto_gcp: p\nregiao: r\nbucket_bronze: b\ndataset_silver: s\ndataset_gold: g\n"
+        "service_acount: x\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ConfigError) as exc:
+        load_environment(f)
+    assert "service_acount" in exc.value.detail and "service_account" in exc.value.detail

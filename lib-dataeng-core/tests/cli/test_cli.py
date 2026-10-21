@@ -182,3 +182,18 @@ def test_accents_survive_pipe_encoding(config: Path) -> None:
     )
     assert proc.returncode == 0
     assert "válida".encode() in proc.stdout
+
+
+def test_usage_errors_show_their_own_fix(config: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    generic = "Corrija o campo indicado no YAML"
+    assert main(["validate-config", "--config", str(config.parent / "nao_existe.yaml")]) == 1
+    err = capsys.readouterr().err
+    assert "--config" in err.split("Como corrigir:")[1] and generic not in err
+
+    assert main(["validate-config", "--config", str(config), "--ambiente", "nenhum"]) == 1
+    err = capsys.readouterr().err
+    assert "nenhum" in err and "config/ambientes" in err.split("Como corrigir:")[1] and generic not in err
+
+    assert main(["run", "local", "--config", str(config), "--run-id", "!!"]) == 1
+    err = capsys.readouterr().err
+    assert "--run-id" in err.split("Como corrigir:")[1] and generic not in err
