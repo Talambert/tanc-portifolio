@@ -2,7 +2,7 @@
 
 Template [Cookiecutter](https://cookiecutter.readthedocs.io/) de pipelines de engenharia de dados sobre a biblioteca `dataeng-core` (`../lib-dataeng-core`). Gera três tipos de projeto: **`ingestao`** (origens `arquivo`, `api` e `pubsub`), **`relatorio`** (view, `MERGE`, `python`/`spark` opcionais e `qualidade` sobre dados de exemplo semeados) e **`hibrido`** (os dois numa só `pipeline.yaml`).
 
-Para ir de zero a uma DAG validada, siga o **[guia: criar um novo pipeline](docs/guia-novo-pipeline.md)**. Seus comandos marcados são executados por `tests/test_docs_commands.py`.
+Para ir de zero a uma DAG planejada (a montagem real no Airflow não foi validada), siga o **[guia: criar um novo pipeline](docs/guia-novo-pipeline.md)**. Seus comandos marcados são executados por `tests/test_docs_commands.py`.
 
 ```bash
 pip install cookiecutter

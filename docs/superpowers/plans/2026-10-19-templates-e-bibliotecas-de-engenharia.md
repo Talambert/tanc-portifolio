@@ -407,7 +407,7 @@ Entradas e falhas que a especificação implica mas que provavelmente ninguém t
 - Modificar: `README.md` da raiz (tabela de projetos e mapa de pastas), `docs/gerar_arquitetura.py` (acrescentar uma caixa para a plataforma, se couber) e `planos/README.md`
 
 **Interfaces:**
-- Produz: guia "criar um novo pipeline" que leva de zero a uma DAG validada (gerar, preencher o YAML, rodar `validate-config`, `plan`, `run local`); tabela de **limitações** copiada da seção 11 da especificação ("implementado e testado com versão local; validar no GCP").
+- Produz: guia "criar um novo pipeline" que leva de zero a uma DAG planejada (a montagem real no Airflow não foi validada) (gerar, preencher o YAML, rodar `validate-config`, `plan`, `run local`); tabela de **limitações** copiada da seção 11 da especificação ("implementado e testado com versão local; validar no GCP").
 
 - [ ] **Passo 1: escrever** a documentação. Cada comando do guia é executado de verdade antes de ser citado.
 - [ ] **Passo 2: escrever e rodar** `template-pipeline/tests/test_docs_commands.py`, com `test_guide_commands_run_on_a_generated_project`: extrai de `docs/guia-novo-pipeline.md` os blocos marcados com `<!-- testar -->` e os executa num projeto gerado, esperando código de saída 0.
@@ -420,7 +420,7 @@ Entradas e falhas que a especificação implica mas que provavelmente ninguém t
 - Criar: `combustiveis-pipeline-gcp/config/pipeline.yaml` e `schemas/` gerados a partir do template
 
 **Interfaces:**
-- Consome: o projeto `hibrido` validado na Tarefa 23.
+- Consome: o projeto `hibrido` testado localmente na Tarefa 23.
 
 - [ ] **Passo 1: gerar** um projeto `hibrido` com as origens da ANP e trazer `config/` e `schemas/` para a pasta existente, sem apagar o `download_anp.py`.
 - [ ] **Passo 2: rodar** `dataeng validate-config` e `dataeng plan` na pasta; ajustar o plano 01 para citar o template como base das Fases 1 a 3 e manter a comparação Python × PySpark.

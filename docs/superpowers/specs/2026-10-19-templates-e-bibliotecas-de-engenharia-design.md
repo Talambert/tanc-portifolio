@@ -282,7 +282,7 @@ O `combustiveis-pipeline-gcp` passa a ser o primeiro consumidor real: o plano de
 - [ ] A ingestão e o exemplo híbrido da ANP rodam local de ponta a ponta e são idempotentes (seção 9).
 - [ ] O Pub/Sub local confirma só depois de gravar e deduplica.
 - [ ] As camadas da biblioteca são verificadas no CI e a transformação é equivalente nos dois motores.
-- [ ] Existe um guia "criar um novo pipeline" que leva de zero a uma DAG validada.
+- [ ] Existe um guia "criar um novo pipeline" que leva de zero a uma DAG planejada (a montagem real no Airflow não foi validada).
 - [ ] A biblioteca e o template têm README, CHANGELOG e CI.
 
 ## 11. Limitações e riscos
