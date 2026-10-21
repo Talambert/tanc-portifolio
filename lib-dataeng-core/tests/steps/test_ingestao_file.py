@@ -668,3 +668,33 @@ def test_hook_import_failure_does_not_leak_the_exception_message(
     assert "Traceback" in err and "ValueError" in err  # o diagnóstico vai para o log
     for text in (result.detail, str(rows(ctx, "SELECT * FROM silver._controle_execucoes"))):
         assert "SENTINELA-654" not in text
+
+
+# ------------------------------------------------- revisão final: o texto do warehouse não vaza (ddl/dml_pos_carga)
+
+SENTINEL = "POSTO-SENTINELA-02"
+
+
+@pytest.mark.parametrize("phase", ["ddl", "dml_pos_carga"])
+def test_sql_failure_in_ingestion_never_leaks_warehouse_text(
+    project: Path, make_ctx: MakeCtx, caplog: pytest.LogCaptureFixture, phase: str
+) -> None:
+    write_source(project, f"id;produto;valor\n1;{SENTINEL};5,50\n")
+    (project / "sql").mkdir()
+    if phase == "ddl":
+        sql = f"CREATE TABLE silver.aux AS SELECT CAST('{SENTINEL}' AS INTEGER) AS x;\n"
+    else:
+        sql = "UPDATE silver.vendas SET id = CAST(produto AS INTEGER);\n"
+    (project / "sql" / "falha.sql").write_text(sql, encoding="utf-8")
+    pipe = pipeline(ingest_step(**{phase: ["sql/falha.sql"]}))
+    ctx = make_ctx(pipe)
+
+    with caplog.at_level("DEBUG"):
+        result = run_step(pipe.get("ingere"), ctx)
+
+    assert result.status == "falha"
+    assert "sql/falha.sql" in result.detail and "instrução 1 de 1" in result.detail
+    assert "SqlError" in result.detail and f"fase '{phase}'" in result.detail
+    stored = " ".join(str(r) for r in rows(ctx, "SELECT * FROM silver._controle_execucoes"))
+    for text in (result.detail, caplog.text, stored):
+        assert SENTINEL not in text and "Could not convert" not in text

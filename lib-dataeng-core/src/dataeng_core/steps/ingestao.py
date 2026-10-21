@@ -28,7 +28,9 @@ Limitações conhecidas:
   `_run_id` (as rejeitadas não têm a coluna de partição confiável);
 - se a reexecução não tiver rejeitadas, as rejeitadas antigas com a mesma chave continuam na quarentena.
 
-Mensagens de falha nunca trazem valores dos dados; o segredo da API passa por `redact`.
+Mensagens de falha nunca trazem valores dos dados; o segredo da API passa por `redact`. Falha de `ddl` ou de
+`dml_pos_carga` informa só arquivo, número da instrução, linha, a CLASSE da exceção do warehouse e a
+referência (nunca o texto do warehouse, que cita valores), como nas etapas `sql` e `view`.
 
 A origem `pubsub` (puxar → bronze → silver/quarentena → `ack`, dedupe por `message_id`) fica em
 `steps/_pubsub_ingest.py`, que reaproveita o bronze e a carga daqui.
@@ -49,7 +51,7 @@ from urllib.parse import urlsplit
 import pandas as pd
 import requests
 
-from dataeng_core.base.errors import ConfigError, DataEngError, SourceError
+from dataeng_core.base.errors import ConfigError, DataEngError, SourceError, SqlError
 from dataeng_core.base.pipeline import ApiOrigem, ArquivoOrigem, Destino, IngestaoStep, PubSubOrigem, Step
 from dataeng_core.base.runtime import get_logger, redact
 from dataeng_core.base.schema import SchemaSpec, load_schema
@@ -59,6 +61,7 @@ from dataeng_core.sources.files import extract_zip_members, read_file
 from dataeng_core.sql.render import render_sql, split_with_lines
 from dataeng_core.steps.context import StepContext, StepResult, resolve_ingestion_date
 from dataeng_core.steps.registry import log_unexpected, register_step_type, step_secrets
+from dataeng_core.steps.sql_steps import warehouse_failure
 from dataeng_core.transform.engine_pandas import MOTIVO, apply_transform
 from dataeng_core.transform.hooks import HookImportError
 from dataeng_core.warehouse.base import LoadMode, split_table, validate_identifier
@@ -393,7 +396,9 @@ def _quarantine(
     return frame, pd.Series(sources, dtype="string")
 
 
-def _run_sql_files(ctx: StepContext, paths: list[Path], params: dict[str, str], *, ddl: bool) -> None:
+def _run_sql_files(
+    ctx: StepContext, paths: list[Path], params: dict[str, str], secrets: list[str], *, ddl: bool
+) -> None:
     for rel in paths:
         source = rel.as_posix()
         try:
@@ -402,12 +407,22 @@ def _run_sql_files(ctx: StepContext, paths: list[Path], params: dict[str, str], 
             raise ConfigError(
                 f"não foi possível ler o arquivo SQL {source} ({type(exc).__name__})", operation="ingestao.sql"
             ) from exc
-        statements = [s.text for s in split_with_lines(render_sql(text, params, source=source), source=source)]
-        if ddl:
-            for statement in statements:
-                ctx.warehouse.execute_ddl(statement)
-        else:
-            ctx.warehouse.run_sql(statements)
+        statements = split_with_lines(render_sql(text, params, source=source), source=source)
+        for number, statement in enumerate(statements, start=1):
+            try:
+                if ddl:
+                    ctx.warehouse.execute_ddl(statement.text)
+                else:
+                    ctx.warehouse.run_sql([statement.text])
+            except DataEngError as exc:
+                # a mensagem do warehouse pode citar valores dos dados: só a classe e a referência
+                raise SqlError(
+                    f"arquivo {source}: instrução {number} de {len(statements)} (linha {statement.line}) "
+                    f"falhou ({warehouse_failure(exc, secrets)}); as instruções anteriores já foram aplicadas e não "
+                    "foram desfeitas. Reexecute a instrução manualmente no warehouse para ver o erro completo, "
+                    "corrija o SQL e reexecute a etapa",
+                    operation="ingestao.ddl" if ddl else "ingestao.dml_pos_carga",
+                ) from None
 
 
 def _load_outputs(
@@ -425,8 +440,9 @@ def _load_outputs(
 ) -> list[str]:
     """DDL → silver → quarentena → qualidade → `dml_pos_carga` (comum a todas as origens); devolve notas."""
     destino = step.destino
+    secrets = step_secrets(step)
     prog.phase = "ddl"
-    _run_sql_files(ctx, destino.ddl, params, ddl=True)
+    _run_sql_files(ctx, destino.ddl, params, secrets, ddl=True)
 
     prog.phase = "carga_silver"
     if len(silver) > 0:
@@ -449,7 +465,7 @@ def _load_outputs(
         notes.append(f"dml_pos_carga não executado: nada foi carregado e a tabela {table} ainda não existe")
         log.warning(f"etapa '{step.id}': {notes[-1]}")
     else:
-        _run_sql_files(ctx, destino.dml_pos_carga, params, ddl=False)
+        _run_sql_files(ctx, destino.dml_pos_carga, params, secrets, ddl=False)
     return notes
 
 

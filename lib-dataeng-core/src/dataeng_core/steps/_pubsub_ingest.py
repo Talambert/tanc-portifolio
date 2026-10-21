@@ -98,7 +98,10 @@ def _nack_quietly(client: PubSubClient, subscription: str, ack_ids: list[str], s
     try:
         client.nack(subscription, ack_ids)
     except DataEngError as exc:
-        log.warning(f"etapa '{step_id}': nack do lote falhou ({exc}); as mensagens voltam após o prazo de ack")
+        log.warning(
+            f"etapa '{step_id}': nack do lote falhou ({type(exc).__name__}, referência {exc.reference}); "
+            "as mensagens voltam após o prazo de ack"
+        )
         return False
     except Exception as exc:
         log.warning(

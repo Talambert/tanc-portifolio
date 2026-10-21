@@ -730,3 +730,28 @@ def test_unexpected_error_in_ack_is_wrapped(make_ctx: MakeCtx, ps: LocalPubSub) 
     result = run_step(pipe.get("ingere_eventos"), make_ctx(pipe, RawAck(ps, Recorder())))
     assert result.status == "falha" and "fase 'ack'" in result.detail
     assert "RuntimeError" in result.detail and "SEGREDO" not in result.detail
+
+
+@pytest.mark.parametrize("phase", ["ddl", "dml_pos_carga"])
+def test_pubsub_sql_failure_never_leaks_warehouse_text(
+    make_ctx: MakeCtx, ps: LocalPubSub, project: Path, caplog: pytest.LogCaptureFixture, phase: str
+) -> None:
+    sentinel = "POSTO-SENTINELA-02"
+    publish(ps, {"id": "1", "produto": {"nome": sentinel}, "valor": "5.5"}, "m1")
+    (project / "sql").mkdir()
+    if phase == "ddl":
+        sql = f"CREATE TABLE silver.aux AS SELECT CAST('{sentinel}' AS INTEGER) AS x;\n"
+    else:
+        sql = f"UPDATE {TABLE} SET id = CAST(produto__nome AS INTEGER);\n"
+    (project / "sql" / "falha.sql").write_text(sql, encoding="utf-8")
+    pipe = pipeline(step(**{phase: ["sql/falha.sql"]}))
+    ctx = make_ctx(pipe, ps)
+
+    with caplog.at_level("DEBUG"):
+        result = run_step(pipe.get("ingere_eventos"), ctx)
+
+    assert result.status == "falha"
+    assert "instrução 1 de 1" in result.detail and "SqlError" in result.detail
+    stored = " ".join(str(r) for r in rows(ctx, f"SELECT * FROM {CONTROL}"))
+    for text in (result.detail, caplog.text, stored):
+        assert sentinel not in text and "Could not convert" not in text

@@ -87,7 +87,7 @@ def _note(warnings: list[str]) -> str:
     return "".join(f"; aviso: {w}" for w in warnings)
 
 
-def _failure(exc: DataEngError, secrets: list[str]) -> str:
+def warehouse_failure(exc: DataEngError, secrets: list[str]) -> str:
     """Só a classe e a referência do erro: a mensagem do warehouse pode citar dados ou SQL."""
     return redact(f"{type(exc).__name__}, referência {exc.reference}", secrets)
 
@@ -109,7 +109,7 @@ def _run_sql_step(step: Step, ctx: StepContext) -> StepResult:
                     "falha",
                     detail=(
                         f"arquivo {script.source}: instrução {number} de {len(script.statements)} "
-                        f"(linha {statement.line}) falhou ({_failure(exc, secrets)}); {done} de {total} "
+                        f"(linha {statement.line}) falhou ({warehouse_failure(exc, secrets)}); {done} de {total} "
                         "instruções já executadas e não foram desfeitas (o warehouse não garante atomicidade); "
                         "as seguintes não rodaram. Reexecute a instrução manualmente no warehouse para ver o "
                         "erro completo, corrija o SQL e reexecute a etapa"
@@ -205,7 +205,7 @@ def _run_view_step(step: Step, ctx: StepContext) -> StepResult:
             step.id,
             "falha",
             detail=(
-                f"arquivo {script.source}: a view não pôde ser criada ({_failure(exc, step_secrets(step))}); "
+                f"arquivo {script.source}: a view não pôde ser criada ({warehouse_failure(exc, step_secrets(step))}); "
                 "reexecute a instrução manualmente no warehouse para ver o erro completo, corrija o SQL e reexecute"
             ),
         )
