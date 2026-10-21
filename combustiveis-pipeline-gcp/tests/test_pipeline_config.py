@@ -86,3 +86,22 @@ def test_run_local_with_synthetic_sample(project: Path) -> None:
         ("ingere_precos", "ok"),
         ("checagem_silver", "ok"),
     ]
+
+
+def test_two_files_in_the_same_logical_day_accumulate_and_rerun_does_not_duplicate(project: Path) -> None:
+    """Série histórica: um arquivo por execução, vários no mesmo dia lógico, sem sobrescrever uns aos outros."""
+    (project / "data" / "jan.csv").write_text("\n".join([HEADER, ROWS[0]]) + "\n", encoding="utf-8-sig")
+    (project / "data" / "fev.csv").write_text("\n".join([HEADER, ROWS[1]]) + "\n", encoding="utf-8-sig")
+    config = str(project / "config" / "pipeline.yaml")
+
+    def run(run_id: str, arquivo: str) -> int:
+        return cli.main(["run", "local", "--config", config, "--run-id", run_id, "--param", f"arquivo_anp={arquivo}"])
+
+    assert run("20260301T060000-aaaaaa", "data/jan.csv") == 0
+    assert run("20260301T070000-bbbbbb", "data/fev.csv") == 0  # mesmo dia lógico, outro run_id
+    assert run("20260301T070000-bbbbbb", "data/fev.csv") == 0  # reexecução do mesmo run
+
+    assert _query(project, "SELECT cnpj_revenda, _run_id FROM silver.precos_combustiveis ORDER BY cnpj_revenda") == [
+        ("99999900000101", "20260301T060000-aaaaaa"),
+        ("99999900000202", "20260301T070000-bbbbbb"),
+    ]

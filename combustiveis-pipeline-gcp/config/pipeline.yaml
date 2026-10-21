@@ -25,8 +25,10 @@ etapas:
       bronze: "gs://${bucket_bronze}/bronze/precos_combustiveis/"
       tabela: "${dataset_silver}.precos_combustiveis"
       schema: schemas/destino_precos.yaml
-      modo_carga: overwrite_particao
-      particao: _ingestion_date
+      # merge pelo grão do contrato: vários arquivos no mesmo dia lógico (jan, fev...) se acumulam e reexecutar
+      # o mesmo run não duplica. `overwrite_particao` por `_ingestion_date` apagaria o que outro run carregou no dia.
+      modo_carga: merge
+      chaves_merge: [cnpj_revenda, produto, data_coleta]
       ddl: [sql/pipeline/ddl/silver_precos.sql]
     transformacao:
       - renomear:

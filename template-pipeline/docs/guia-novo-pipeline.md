@@ -154,7 +154,7 @@ O bloco `qualidade` da ingestão (e a etapa `qualidade`) aceita `nao_nulo`, `uni
 
 ### Motores e modo de carga
 
-`modo_carga: append` é idempotente por `run_id` (reexecutar o mesmo `run_id` não duplica); `overwrite_particao` reescreve a partição; `merge` exige `chaves_merge`. Atenção ao `merge` entre execuções: ele é **incondicional**, então um registro mais antigo que chegue depois sobrescreve o mais novo já gravado.
+`modo_carga: append` é idempotente por `run_id` (reexecutar o mesmo `run_id` não duplica); `overwrite_particao` reescreve a partição (por `_ingestion_date`, substitui tudo o que foi carregado no mesmo dia lógico, inclusive por outro `run_id`: prefira `merge` ou partição por coluna de negócio quando mais de um arquivo por dia for esperado); `merge` exige `chaves_merge`. Atenção ao `merge` entre execuções: ele é **incondicional**, então um registro mais antigo que chegue depois sobrescreve o mais novo já gravado.
 
 ## 7. Adicionar etapas
 

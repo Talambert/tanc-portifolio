@@ -45,7 +45,7 @@ Implementado em [`config/pipeline.yaml`](../combustiveis-pipeline-gcp/config/pip
 
 - **Chave natural:** `cnpj_revenda + produto + data_coleta`. Duplicatas são removidas, e a contagem removida é registrada.
 - **Linhas malformadas** (campo com `;` sem aspas, colunas deslocadas) vão para uma tabela de **quarentena** (`silver_rejeitados`) com o motivo, em vez de serem descartadas em silêncio.
-- **Idempotência:** a carga substitui por partição (`data_coleta` por mês). Rodar duas vezes dá o mesmo resultado.
+- **Idempotência:** a carga é `merge` pelo grão (`cnpj_revenda, produto, data_coleta`). Rodar duas vezes dá o mesmo resultado.
 
 ## Status
 
@@ -53,7 +53,7 @@ Implementado em [`config/pipeline.yaml`](../combustiveis-pipeline-gcp/config/pip
 
 **Não real:** nenhuma execução em GCP; nenhum dado real da ANP processado (o cabeçalho do CSV de origem segue o layout público conhecido e não foi conferido contra um arquivo real); Spark não executado.
 
-**Diferenças deliberadas em relação ao contrato:** a partição é `_ingestion_date` (idempotência por `run_id`) e não o mês de `data_coleta`; a quarentena é `<tabela>_rejeitados` (`precos_combustiveis_rejeitados`); `cep` só recebe `trim` (falta "só dígitos e hífen"); `produto` ainda sem lista controlada; `DECIMAL(10, 2)` no lugar de `NUMERIC` (portável); `arquivo_origem` e `carregado_em` viram `_source_file` e `_loaded_at`; o bronze segue `bronze/precos_combustiveis/ingestion_date=.../run_id=.../`, não `bronze/ca/ano=.../`.
+**Diferenças deliberadas em relação ao contrato:** a carga é `merge` por `cnpj_revenda, produto, data_coleta` (idempotente por grão e segura quando vários arquivos caem no mesmo dia lógico; `overwrite_particao` por `_ingestion_date` apagaria o arquivo anterior) e não a partição por mês de `data_coleta`; a quarentena é `<tabela>_rejeitados` (`precos_combustiveis_rejeitados`); `cep` só recebe `trim` (falta "só dígitos e hífen"); `produto` ainda sem lista controlada; `DECIMAL(10, 2)` no lugar de `NUMERIC` (portável); `arquivo_origem` e `carregado_em` viram `_source_file` e `_loaded_at`; o bronze segue `bronze/precos_combustiveis/ingestion_date=.../run_id=.../`, não `bronze/ca/ano=.../`.
 
 ## Fases
 

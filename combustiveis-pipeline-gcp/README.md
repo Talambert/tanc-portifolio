@@ -61,7 +61,7 @@ O que **não** existe:
 - Nenhuma execução em GCP (Cloud Run, BigQuery, Cloud Storage, Dataproc, Airflow): o `dev`/`prod` são só exemplos de configuração.
 - Nenhum dado real da ANP foi processado. O cabeçalho de `schemas/origem_precos.yaml` segue o layout público conhecido do CSV e ainda não foi conferido contra um arquivo real.
 - O motor PySpark nunca foi executado, e a comparação de tempo e custo Python × PySpark continua sendo trabalho futuro.
-- Ainda faltam: `cep` só com dígitos e hífen, lista controlada de `produto`, partição por mês de `data_coleta` (a biblioteca particiona por `_ingestion_date`) e versão Spark do gancho `custom/anp.py`.
+- Ainda faltam: `cep` só com dígitos e hífen, lista controlada de `produto`, partição por mês de `data_coleta` (a silver é carregada por `merge` na chave `cnpj_revenda, produto, data_coleta`, sem partição) e versão Spark do gancho `custom/anp.py`.
 
 ## 📁 Estrutura
 
