@@ -149,3 +149,57 @@ def test_python_step_missing_module(project: Path, make_ctx: MakeCtx) -> None:
     result = run_step(pipe.get("py"), make_ctx(pipe))
     assert result.status == "falha"
     assert "custom.nada" in result.detail and "não encontrado" in result.detail
+
+
+SENTINEL = "SENTINELA-987"
+
+
+def _all_control_text(ctx) -> str:  # type: ignore[no-untyped-def]
+    return str(rows(ctx, "SELECT * FROM silver._controle_execucoes"))
+
+
+def test_python_step_import_error_does_not_leak_the_exception_message(
+    project: Path, make_ctx: MakeCtx, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (project / "custom").mkdir()
+    (project / "custom" / "__init__.py").write_text("", encoding="utf-8")
+    (project / "custom" / "job.py").write_text(
+        f"valor = '{SENTINEL}'\nraise ValueError(f'CNPJ {{valor}} inválido')\n\ndef rodar(ctx):\n    pass\n",
+        encoding="utf-8",
+    )
+    pipe = _python_pipeline("custom.job:rodar")
+    ctx = make_ctx(pipe)
+    result = run_step(pipe.get("py"), ctx)
+    assert result.status == "falha"
+    m = re.fullmatch(
+        r"a função custom\.job:rodar não pôde ser importada \(ValueError\); referência ([0-9a-f]{8}); "
+        r"veja o log com essa referência, corrija o módulo e reexecute a etapa",
+        result.detail,
+    )
+    assert m, result.detail
+    err = capsys.readouterr().err
+    assert f"referência {m.group(1)}" in err and "Traceback" in err  # o diagnóstico fica no log
+    assert SENTINEL not in result.detail and SENTINEL not in _all_control_text(ctx)
+
+
+def test_python_step_signature_message_talks_about_the_context(project: Path, make_ctx: MakeCtx) -> None:
+    (project / "custom").mkdir()
+    (project / "custom" / "__init__.py").write_text("", encoding="utf-8")
+    (project / "custom" / "dois.py").write_text("def rodar(a, b):\n    pass\n", encoding="utf-8")
+    pipe = _python_pipeline("custom.dois:rodar")
+    result = run_step(pipe.get("py"), make_ctx(pipe))
+    assert result.status == "falha"
+    assert "contexto" in result.detail and "DataFrame" not in result.detail
+
+
+def test_python_step_returned_result_with_none_detail(project: Path, make_ctx: MakeCtx) -> None:
+    (project / "custom").mkdir()
+    (project / "custom" / "__init__.py").write_text("", encoding="utf-8")
+    (project / "custom" / "nada.py").write_text(
+        "from dataeng_core.steps.context import StepResult\n\n"
+        "def rodar(ctx):\n    return StepResult('py', 'ok', rows_read=1, detail=None)\n",
+        encoding="utf-8",
+    )
+    pipe = _python_pipeline("custom.nada:rodar")
+    result = run_step(pipe.get("py"), make_ctx(pipe))
+    assert (result.status, result.rows_read, result.detail) == ("ok", 1, "")

@@ -114,3 +114,30 @@ def test_project_with_stdlib_named_files_does_not_evict_stdlib_modules(tmp_path:
     antes = sys.modules["types"]
     resolve_hook("h:f", project_root=tmp_path)
     assert sys.modules["types"] is antes is types
+
+
+def test_import_failure_message_has_no_exception_text_and_keeps_the_cause(tmp_path: Path) -> None:
+    from dataeng_core.transform.hooks import HookImportError
+
+    _write(tmp_path, "custom/__init__.py", "")
+    _write(tmp_path, "custom/job.py", "raise ValueError('CNPJ SENTINELA-321 inválido')\n")
+    with pytest.raises(HookImportError) as exc:
+        resolve_hook("custom.job:f", project_root=tmp_path)
+    assert "SENTINELA-321" not in str(exc.value)
+    assert "custom.job" in str(exc.value) and "(ValueError)" in str(exc.value)
+    assert isinstance(exc.value.__cause__, ValueError)  # quem chama registra o traceback no log
+
+
+def test_failed_import_does_not_leave_an_old_package_shadowing_the_next_root(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> None:
+    antiga, quebrada, nova = (tmp_path_factory.mktemp(n) for n in ("antiga", "quebrada", "nova"))
+    _write(antiga, "custom/__init__.py", "")  # pacote regular
+    _write(antiga, "custom/a.py", "def f(df):\n    return df\n")
+    _write(quebrada, "custom/__init__.py", "")
+    _write(quebrada, "custom/b.py", "raise RuntimeError('x')\n")
+    _write(nova, "custom/c.py", "def f(df):\n    return df\n")  # pacote-namespace (sem __init__)
+    resolve_hook("custom.a:f", project_root=antiga)
+    with pytest.raises(ConfigError):
+        resolve_hook("custom.b:f", project_root=quebrada)
+    assert resolve_hook("custom.c:f", project_root=nova) is not None

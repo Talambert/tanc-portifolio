@@ -1,9 +1,10 @@
 """Motor de transformação declarativa em PySpark: a MESMA semântica do motor pandas (`engine_pandas`).
 
 O PySpark é importado só dentro das funções (extra `[spark]`): este módulo importa sem ele.
-Versão mínima: PySpark 3.5 (`make_date`, `unix_micros`, `timestamp_micros`, `unionByName(allowMissingColumns)`),
-com Java compatível. Funciona com `spark.sql.ansi.enabled` ligado ou desligado: nenhuma conversão é feita sem
-antes validar o texto por expressão regular (um `cast` inválido com ANSI levantaria erro em vez de devolver nulo).
+Versão mínima: PySpark 3.5 (`make_date`, `unix_micros`, `timestamp_micros`, `try_element_at`, `withColumns`,
+`unionByName(allowMissingColumns)`), com Java compatível. Projetado para funcionar com `spark.sql.ansi.enabled`
+ligado ou desligado (nenhum `cast` é feito sem validar o texto antes); validado só no CI Linux, não executado no
+ambiente de desenvolvimento.
 
 Contrato (igual ao do pandas): `rows` com os valores convertidos e `rejected` com as colunas ORIGINAIS da linha
 mais `_motivo` (sem eco do valor da célula). "Primeira" ocorrência (`deduplicar`) e a ordem de saída seguem a
@@ -13,28 +14,42 @@ Tipos de saída: `decimal` → double, `inteiro` → long, `booleano` → boolea
 `spark_to_pandas` devolve os mesmos dtypes do motor pandas (`Float64`, `Int64`, `boolean`, `string`, `date` em
 `object` e `datetime64[us, UTC]`) sem depender do fuso da sessão.
 
-Ganchos (`hook`): recebem e devolvem um `pyspark.sql.DataFrame` (não pandas). Mantendo a coluna
-`_dataeng_row_id` (sem nulos, sem repetição e só com ids existentes), a "linha original" continua sendo a da
-entrada; senão passa a ser a saída do gancho, como no pandas.
+Tamanho do plano: `tipar` converte em ETAPAS materializadas (`withColumns` sucessivos com colunas temporárias
+`_dataeng_*`, removidas no fim), para que nenhuma expressão repita subárvores. Datas e timestamps fazem UMA
+`regexp_replace` por formato candidato (veja `_date_patterns`) e escolhem o primeiro que converte com um
+`coalesce` sobre colunas já calculadas. Tetos medidos sem Spark em `tests/transform/test_engine_spark_plan.py`.
+Premissa: o `CollapseProject` do Catalyst (Spark ≥ 3.3) não junta projeções quando isso duplicaria uma
+expressão não trivial usada mais de uma vez.
 
-Diferenças conhecidas em relação ao pandas (casos raros, documentados):
+`localCheckpoint`: guarda os dados nos executores, sem tolerância a falhas. Se um executor se perde (comum no
+Dataproc Serverless com autoescalonamento), o job falha em vez de recomputar. Para lotes grandes ou longos,
+prefira `spark.sparkContext.setCheckpointDir(<gs://...>)` e troque por `checkpoint()` (mais lento, confiável).
+
+Nomes reservados: colunas com o prefixo `_dataeng_` são do motor. Entrada, `renomear` ou gancho que as produza é
+`ConfigError`. `renomear` também recusa nomes que só diferem em maiúsculas/minúsculas (o Spark não os distingue).
+
+Ganchos (`hook`): recebem e devolvem um DataFrame do PySpark (clássico ou Spark Connect; não pandas). Mantendo
+a coluna `_dataeng_row_id` (sem nulos, sem repetição e só com ids existentes), a "linha original" continua sendo a
+da entrada; senão passa a ser a saída do gancho, como no pandas.
+
+Diferenças conhecidas em relação ao pandas (casos raros):
+- capacidade: `formato` aceita só `%Y %y %m %d %H %M %S %f %%`. Outras diretivas (`%b`, `%z`, `%j`, `%p`...)
+  funcionam no pandas, mas aqui são `ConfigError` ao montar a transformação, antes de tocar nos dados;
 - dígitos não ASCII (ex.: árabe-índicos) são aceitos pelo Python e rejeitados aqui;
-- `formato` aceita só as diretivas `%Y %y %m %d %H %M %S %f %%` (outras são `ConfigError` aqui);
-- `timestamp` sem `formato`: do ISO 8601 aceita `AAAA-MM-DD` ou `AAAAMMDD`, opcionalmente seguido de um
-  separador qualquer, `HH[:MM[:SS[.f]]]` ou `HH[MM[SS[.f]]]` e fuso `Z` ou `±HH[[:]MM[[:]SS]]` (sem semanas ISO
-  nem fração no fuso, que o Python aceita);
+- `timestamp` sem `formato`: do ISO 8601 só o subconjunto de `_date_patterns.ISO_PATTERN` (sem semanas ISO nem
+  fração no fuso, que o Python aceita);
 - as diretivas do `formato` vêm do `_strptime` do próprio interpretador (ex.: `%H` aceita ` 9` no 3.13);
 - após um gancho que REORDENA mantendo `_dataeng_row_id`, "primeira" continua sendo a ordem de entrada;
-- `texto`/`normalizar` de double fora do intervalo de long ou com expoente formata como Java (`1.0E20`);
-  de timestamp usa o fuso da sessão (use `spark.sql.session.timeZone=UTC`);
-- maiúsculas/minúsculas usam as regras do Java; padrões `regex` são compilados pelo Java (sintaxe quase igual).
+- `texto`/`normalizar` de double fora do intervalo de long ou com expoente formata como o Java (`1.0E20`;
+  JDK < 19 pode diferir também em outros doubles); de timestamp usa o fuso da sessão;
+- `data` de coluna timestamp usa `to_date` no fuso da sessão (use `spark.sql.session.timeZone=UTC`);
+- maiúsculas/minúsculas usam as regras da JVM (locale) para não ASCII; padrões `regex` são compilados pelo Java;
+- colunas com prefixo `_dataeng_` e nomes que só diferem na caixa são recusados aqui (o pandas aceita).
 """
 
 from __future__ import annotations
 
 import datetime as dt
-import functools
-import importlib
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -46,6 +61,14 @@ import pandas as pd
 
 from dataeng_core.base.errors import ConfigError, DataEngError
 from dataeng_core.base.pipeline import RegraRejeicao, TipoSpec, TransformOp
+from dataeng_core.transform._date_patterns import (
+    ISO_PATTERN,
+    MARK,
+    SEP,
+    WS_JAVA,
+    DatePattern,
+    strptime_pattern,
+)
 from dataeng_core.transform.engine_pandas import (
     _DATE_FORMATS,
     _FALSE,
@@ -60,20 +83,31 @@ from dataeng_core.transform.engine_pandas import (
 )
 from dataeng_core.transform.hooks import resolve_hook
 
-# Espaço em branco do `str.isspace()` do Python, em regex Java.
-WS_JAVA = r"[\p{IsWhite_Space}\x1c-\x1f]"
-
+RESERVED_PREFIX = "_dataeng_"
 _PART = "_dataeng_parte"
 _TMP = "_dataeng_motivo_tmp"
 _RANK = "_dataeng_ordem"
 _EPOCH = dt.date(1970, 1, 1)
 _US_PER_DAY = 86_400_000_000
-_TS_LO = (dt.datetime(_TS_MIN_YEAR, 1, 1, tzinfo=dt.UTC) - dt.datetime(1970, 1, 1, tzinfo=dt.UTC)) // dt.timedelta(
-    microseconds=1
-)
-_TS_HI = (dt.datetime(_TS_MAX_YEAR + 1, 1, 1, tzinfo=dt.UTC) - dt.datetime(1970, 1, 1, tzinfo=dt.UTC)) // dt.timedelta(
-    microseconds=1
-)
+_UTC_EPOCH = dt.datetime(1970, 1, 1, tzinfo=dt.UTC)
+_TS_LO = (dt.datetime(_TS_MIN_YEAR, 1, 1, tzinfo=dt.UTC) - _UTC_EPOCH) // dt.timedelta(microseconds=1)
+_TS_HI = (dt.datetime(_TS_MAX_YEAR + 1, 1, 1, tzinfo=dt.UTC) - _UTC_EPOCH) // dt.timedelta(microseconds=1)
+# sufixos das temporárias por componente: o Spark não diferencia maiúsculas nos nomes (m/M, y/Y colidiriam)
+_SUFFIX = {
+    "Y": "ano",
+    "y": "ano2",
+    "m": "mes",
+    "d": "dia",
+    "H": "hora",
+    "M": "minuto",
+    "S": "seg",
+    "f": "frac",
+    "tzs": "tzsinal",
+    "tzh": "tzhora",
+    "tzm": "tzmin",
+    "tzsec": "tzseg",
+}
+_TARGET = {"decimal": "double", "inteiro": "long", "booleano": "boolean", "data": "date", "timestamp": "timestamp"}
 
 
 @dataclass
@@ -83,10 +117,10 @@ class SparkTransformResult:
     duplicates_removed: int = field(default=0)  # removidas por `deduplicar` (não são rejeições)
 
 
-def _pyspark() -> tuple[Any, Any, Any, Any]:
-    """`functions`, `types`, `Window` e `DataFrame` do PySpark, com erro acionável se o extra faltar."""
+def _pyspark() -> tuple[Any, Any, Any]:
+    """`functions`, `types` e `Window` do PySpark, com erro acionável se o extra faltar."""
     try:
-        from pyspark.sql import DataFrame, Window
+        from pyspark.sql import Window
         from pyspark.sql import functions as F
         from pyspark.sql import types as T
     except ImportError as exc:
@@ -95,86 +129,65 @@ def _pyspark() -> tuple[Any, Any, Any, Any]:
             "e um Java compatível (JAVA_HOME ou java no PATH)",
             operation="transform.spark",
         ) from exc
-    return F, T, Window, DataFrame
+    return F, T, Window
 
 
-# ------------------------------------------------------------- padrões de data (Python puro, testável sem Spark)
-
-_SUPPORTED_DIRECTIVES = "dmYyHMSf"
-
-
-@functools.cache
-def _directive(directive: str) -> str:
-    """Fragmento do `_strptime` do PRÓPRIO interpretador (muda entre versões), com grupo numerado.
-
-    Ex.: `(?P<d>3[0-1]|[1-2]\\d|0[1-9]|[1-9]| [1-9])` vira `(3[0-1]|...)`: válido em Python e em Java.
-    """
-    fragment = str(importlib.import_module("_strptime").TimeRE()[directive])
-    return re.sub(r"^\(\?P<\w+>", "(", fragment)
+def _is_dataframe(obj: Any) -> bool:
+    """DataFrame do PySpark clássico ou do Spark Connect (duck typing: as duas classes têm esta interface)."""
+    return isinstance(getattr(obj, "columns", None), list) and callable(getattr(obj, "toPandas", None))
 
 
-@dataclass(frozen=True)
-class DatePattern:
-    """Regex ancorada no início; a correspondência (a primeira, como `re.match`) deve cobrir o texto todo.
+def check_reserved(columns: Sequence[str], where: str) -> None:
+    """Colunas com o prefixo `_dataeng_` são do motor (exceto o id de linha mantido por um gancho)."""
+    reserved = [c for c in columns if c.casefold().startswith(RESERVED_PREFIX) and c != ROW_ID]
+    if reserved:
+        raise ConfigError(
+            f"{where}: as colunas {', '.join(repr(c) for c in reserved)} usam o prefixo reservado "
+            f"'{RESERVED_PREFIX}' do motor de transformação; renomeie-as",
+            operation="transform.spark",
+        )
 
-    `groups`: componente (`Y y m d H M S f Z tzs tzh tzm`) → índices dos grupos; mais de um índice são
-    alternativas exclusivas (só uma participa), e o valor é a concatenação deles.
-    """
 
-    regex: str
-    groups: Mapping[str, tuple[int, ...]]
+def check_rename(columns: Sequence[str], mapping: Mapping[str, str]) -> None:
+    """Resultado de `renomear` sem duplicadas, também sem diferenciar maiúsculas (o Spark não diferencia)."""
+    names = [mapping.get(c, c) for c in columns]
+    dup = sorted({n for n in names if names.count(n) > 1})
+    if dup:
+        raise ConfigError(
+            f"operação 'renomear' geraria colunas duplicadas: {', '.join(repr(d) for d in dup)}",
+            operation="transform.renomear",
+        )
+    folded = [n.casefold() for n in names]
+    clash = sorted({n for n in names if folded.count(n.casefold()) > 1})
+    if clash:
+        raise ConfigError(
+            f"operação 'renomear' geraria colunas que só diferem em maiúsculas/minúsculas: "
+            f"{', '.join(repr(d) for d in clash)} (o Spark não as distingue)",
+            operation="transform.renomear",
+        )
+    check_reserved(names, "operação 'renomear'")
 
 
-def strptime_pattern(fmt: str, ws: str = WS_JAVA) -> DatePattern:
-    """Traduz um formato do `strptime` (subconjunto) para regex, como o próprio `_strptime` faz."""
-    parts: list[str] = []
-    groups: dict[str, tuple[int, ...]] = {}
-    i = 0
-    while i < len(fmt):
-        ch = fmt[i]
-        if ch == "%":
-            directive = fmt[i + 1] if i + 1 < len(fmt) else ""
-            i += 2
-            if directive == "%":
-                parts.append("%")
-                continue
-            if not directive or directive not in _SUPPORTED_DIRECTIVES:
+def validate_ops(ops: Sequence[TransformOp]) -> None:
+    """Erros de configuração detectáveis sem dados, antes de tocar no DataFrame (formatos, separadores, regex)."""
+    for op in ops:
+        for spec in (op.tipar or {}).values():
+            if spec.separador_decimal not in (None, ".", ","):
                 raise ConfigError(
-                    f"formato de data '{fmt}': a diretiva '%{directive}' não é suportada pelo motor Spark; "
-                    "use só %Y %y %m %d %H %M %S %f",
+                    "separador_decimal deve ser '.' ou ',' (o outro é usado como separador de milhar)",
                     operation="transform.tipar",
                 )
-            if directive in groups or (directive in "Yy" and ("Y" in groups or "y" in groups)):
-                raise ConfigError(
-                    f"formato de data '{fmt}': diretiva de ano/campo repetida ('%{directive}')",
-                    operation="transform.tipar",
-                )
-            groups[directive] = (len(groups) + 1,)
-            parts.append(_directive(directive))
-        elif ch.isspace():
-            while i < len(fmt) and fmt[i].isspace():
-                i += 1
-            parts.append(ws + "+")
-        else:
-            parts.append(ch if ch.isalnum() else re.escape(ch))
-            i += 1
-    return DatePattern("(?i)^(?:" + "".join(parts) + ")", groups)
-
-
-_TIME = r"(?:(\d{2})(?::(\d{2})(?::(\d{2})(?:[.,](\d+))?)?)?|(\d{2})(?:(\d{2})(?:(\d{2})(?:[.,](\d+))?)?)?)"
-_TZ = r"(?:(Z)|([+-])(\d{2})(?::?(\d{2})(?::?(\d{2}))?)?)?"
-
-
-def _iso(date: str) -> DatePattern:
-    groups: dict[str, tuple[int, ...]] = {"Y": (1,), "m": (2,), "d": (3,)}
-    groups.update({"H": (4, 8), "M": (5, 9), "S": (6, 10), "f": (7, 11)})
-    groups.update({"Z": (12,), "tzs": (13,), "tzh": (14,), "tzm": (15,), "tzsec": (16,)})
-    return DatePattern(f"^{date}(?:(?s:.){_TIME}{_TZ})?$", groups)
-
-
-# Subconjunto do `datetime.fromisoformat` (Python 3.11+): data estendida ou básica, separador de um caractere
-# qualquer, hora estendida ou básica, fuso `Z` ou `±HH[[:]MM[[:]SS]]`.
-ISO_PATTERNS = (_iso(r"(\d{4})-(\d{2})-(\d{2})"), _iso(r"(\d{4})(\d{2})(\d{2})"))
+            if spec.tipo in ("data", "timestamp") and spec.formato:
+                strptime_pattern(spec.formato)
+        for regra in op.rejeitar_se or []:
+            if regra.regra == "regex":
+                try:
+                    re.compile(regra.padrao or "")
+                except re.error as exc:
+                    raise ConfigError(
+                        f"regra regex da coluna '{regra.coluna}': padrão inválido ({exc.msg})",
+                        operation="transform.rejeitar_se",
+                    ) from exc
 
 
 # ------------------------------------------------------------------------------------------- motor
@@ -182,12 +195,13 @@ ISO_PATTERNS = (_iso(r"(\d{4})-(\d{2})-(\d{2})"), _iso(r"(\d{4})(\d{2})(\d{2})")
 
 class _Engine:
     def __init__(self, df: Any, project_root: Path) -> None:
-        self.F, self.T, self.Window, self.DataFrame = _pyspark()
+        self.F, self.T, self.Window = _pyspark()
         if ROW_ID in df.columns:
             raise ConfigError(
                 f"a coluna '{ROW_ID}' é reservada ao motor de transformação; renomeie-a na origem",
                 operation="transform.spark",
             )
+        check_reserved(df.columns, "entrada")
         self.root = project_root
         self.cur = self._with_ids(df)
         self.orig = self.cur
@@ -204,7 +218,7 @@ class _Engine:
         return self.F.col("`" + name.replace("`", "``") + "`")
 
     def _user_columns(self, df: Any) -> list[str]:
-        return [c for c in df.columns if c != ROW_ID]
+        return [c for c in df.columns if not c.casefold().startswith(RESERVED_PREFIX)]
 
     def _dtype(self, name: str) -> Any:
         return self.cur.schema[name].dataType
@@ -284,21 +298,22 @@ class _Engine:
 
     # ------------------------------------------------------------------ conversões
 
-    def _decimal_text(self, s: Any, sep: str) -> tuple[Any, Any]:
+    def _decimal_text(self, t: Any, sep: str) -> tuple[Any, Any]:
+        """`t` já sem espaços nas pontas."""
         F = self.F
         thou = "," if sep == "." else "."
-        t = F.regexp_replace(self._strip(s), " ", "")
+        t = F.translate(t, " ", "")
         pattern = rf"^[+-]?(?:\d{{1,3}}(?:{re.escape(thou)}\d{{3}})+|\d+)(?:{re.escape(sep)}\d+)?$"
         valid = t.rlike(pattern)
-        number = F.regexp_replace(F.regexp_replace(t, re.escape(thou), ""), re.escape(sep), ".")
+        number = F.translate(F.translate(t, thou, ""), sep, ".")
         value = F.when(valid, number.cast("double"))
         ok = F.coalesce(valid & (F.abs(value) != F.lit(float("inf"))), F.lit(False))
         return value, ok
 
-    def _decimal(self, c: Any, kind: str, sep: str) -> tuple[Any, Any]:
+    def _decimal(self, c: Any, kind: str, sep: str, stripped: Any = None) -> tuple[Any, Any]:
         F = self.F
         if kind == "string":
-            return self._decimal_text(c, sep)
+            return self._decimal_text(self._strip(c) if stripped is None else stripped, sep)
         if kind in ("int", "decimal"):
             return c.cast("double"), F.lit(True)
         if kind == "float":
@@ -313,13 +328,14 @@ class _Engine:
         )
         return F.when(good, d.cast("long")), good
 
-    def _integer(self, c: Any, kind: str, spec: TipoSpec) -> tuple[Any, Any]:
+    def _integer(self, c: Any, kind: str, spec: TipoSpec, t: Any, p: str) -> tuple[Any, Any]:
         F = self.F
         if kind == "string" and spec.separador_decimal is None:
-            t = self._strip(c)
             valid = t.rlike(r"^[+-]?\d+(?:\.0+)?$")
             neg = t.startswith("-")
-            mag = F.regexp_replace(F.regexp_extract(t, r"^[+-]?(\d+)", 1), "^0+", "")
+            digits = F.split(F.ltrim(F.translate(t, "+-", "")), "\\.", 2).getItem(0)
+            mag = F.ltrim(F.translate(digits, "0", " "))  # sem zeros à esquerda (não há espaços no texto)
+            mag = F.translate(mag, " ", "0")
             limit = F.when(neg, F.lit("9223372036854775808")).otherwise(F.lit("9223372036854775807"))
             fits = (F.length(mag) < 19) | ((F.length(mag) == 19) & (mag <= limit))
             ok = F.coalesce(valid & fits, F.lit(False))
@@ -329,16 +345,18 @@ class _Engine:
             return F.when(ok, signed.cast("long")), ok
         if kind == "int":
             return c.cast("long"), F.lit(True)
-        d, ok = self._decimal(c, kind, spec.separador_decimal or ".")
-        return self._whole(d, ok)
+        d, ok = self._decimal(c, kind, spec.separador_decimal or ".", stripped=t)
+        # materializa o número antes de testar se é inteiro (senão a subárvore se repetiria)
+        self.cur = self.cur.withColumns({f"{p}num": d, f"{p}numok": F.coalesce(ok, F.lit(False))})
+        return self._whole(F.col(f"{p}num"), F.col(f"{p}numok"))
 
-    def _boolean(self, c: Any, kind: str) -> tuple[Any, Any]:
+    def _boolean(self, c: Any, kind: str, t: Any) -> tuple[Any, Any]:
         F = self.F
         if kind == "bool":
             return c, F.lit(True)
         if kind == "string":
-            t = F.lower(self._strip(c))
-            value = F.when(t.isin(*sorted(_TRUE)), F.lit(True)).when(t.isin(*sorted(_FALSE)), F.lit(False))
+            low = F.lower(t)
+            value = F.when(low.isin(*sorted(_TRUE)), F.lit(True)).when(low.isin(*sorted(_FALSE)), F.lit(False))
         elif kind in ("int", "float", "decimal"):
             d = c.cast("double")
             value = F.when(d == 1, F.lit(True)).when(d == 0, F.lit(False))
@@ -346,83 +364,130 @@ class _Engine:
             return self._null("boolean"), F.lit(False)
         return value, value.isNotNull()
 
-    def _int_of(self, text: Any) -> Any:
+    def _stage_dates(self, s_name: str, patterns: Sequence[DatePattern], p: str, want_ts: bool) -> tuple[Any, Any]:
+        """Converte o texto `s_name` (sem espaços nas pontas) em etapas; devolve (valor, ok) curtos.
+
+        Por padrão j: `r` = uma `regexp_replace`; `w` = casou o texto todo; `a` = grupos; strings e inteiros dos
+        componentes; `ok`, data e microssegundos UTC. Por fim, o primeiro padrão que converte (`coalesce`).
+        """
         F = self.F
-        digits = F.regexp_replace(text, " ", "")
-        return F.when(digits.rlike(r"^[0-9]{1,9}$"), digits.cast("int"))
-
-    def _parse(self, t: Any, pattern: DatePattern) -> tuple[Any, Any, Any]:
-        """(data, microssegundos UTC desde a época, ok) de um texto já sem espaços nas pontas."""
-        F = self.F
-
-        def grp(name: str) -> Any:
-            idx = pattern.groups.get(name)
-            if not idx:
-                return None
-            pieces = [F.regexp_extract(t, pattern.regex, i) for i in idx]
-            return pieces[0] if len(pieces) == 1 else F.concat(*pieces)
-
-        def num(name: str, default: int) -> Any:
-            g = grp(name)
-            return F.lit(default) if g is None else F.coalesce(self._int_of(g), F.lit(default))
-
-        matched = F.regexp_extract(t, pattern.regex, 0) == t
-        if "Y" in pattern.groups:
-            year = num("Y", 1900)
-        elif "y" in pattern.groups:
-            yy = num("y", 0)
-            year = F.when(yy <= 68, yy + 2000).otherwise(yy + 1900)
-        else:
-            year = F.lit(1900)
-        month, day = num("m", 1), num("d", 1)
-        hour, minute, second = num("H", 0), num("M", 0), num("S", 0)
-        frac = grp("f")
-        micro = (
-            F.lit(0)
-            if frac is None
-            else F.when(frac.rlike(r"^[0-9]+$"), F.rpad(F.substring(frac, 1, 6), 6, "0").cast("long")).otherwise(0)
+        s = F.col(s_name)
+        n = len(patterns)
+        self.cur = self.cur.withColumns(
+            {f"{p}r{j}": F.regexp_replace(s, pat.regex, pat.replacement) for j, pat in enumerate(patterns)}
         )
-        sign = grp("tzs")
-        tz_h, tz_m, tz_s = num("tzh", 0), num("tzm", 0), num("tzsec", 0)
-        leap = ((year % 4 == 0) & (year % 100 != 0)) | (year % 400 == 0)
-        days_in_month = (
-            F.when(month == 2, F.when(leap, 29).otherwise(28)).when(month.isin(4, 6, 9, 11), 30).otherwise(31)
-        )
-        valid = (
-            matched
-            & (year >= 1)
-            & (month >= 1)
-            & (month <= 12)
-            & (day >= 1)
-            & (day <= days_in_month)
-            & (hour <= 23)
-            & (minute <= 59)
-            & (second <= 59)
-            & (tz_h <= 23)
-            & (tz_m <= 59)
-            & (tz_s <= 59)
-        )
-        ok = F.coalesce(F.when(matched, valid), F.lit(False))  # componentes só são avaliados se casou
-        date = F.when(ok, F.make_date(year, month, day))
-        tz_total = tz_h * 3600 + tz_m * 60 + tz_s
-        offset = F.lit(0) if sign is None else F.when(sign == "-", -tz_total).otherwise(tz_total)
-        micros = (
-            F.datediff(date, F.lit(_EPOCH)).cast("long") * F.lit(_US_PER_DAY)
-            + (hour * 3600 + minute * 60 + second - offset).cast("long") * F.lit(1_000_000)
-            + micro
-        )
-        return date, F.when(ok, micros), ok
+        stage: dict[str, Any] = {}
+        for j in range(n):
+            r = F.col(f"{p}r{j}")
+            stage[f"{p}w{j}"] = F.coalesce(r.startswith(MARK) & r.endswith(MARK) & ~s.contains(MARK), F.lit(False))
+            stage[f"{p}a{j}"] = F.split(F.translate(r, MARK, ""), SEP, -1)
+        self.cur = self.cur.withColumns(stage)
+        stage = {}
+        for j, pat in enumerate(patterns):
+            for comp, group in pat.groups.items():
+                item = F.try_element_at(F.col(f"{p}a{j}"), F.lit(group))
+                stage[f"{p}{j}_t{_SUFFIX[comp]}"] = F.when(F.col(f"{p}w{j}"), item)
+        self.cur = self.cur.withColumns(stage)
 
-    def _first(self, t: Any, patterns: Sequence[DatePattern]) -> tuple[Any, Any, Any]:
-        """Primeiro formato que converte (casa E é data válida), como o laço do motor pandas."""
-        F = self.F
-        parsed = [self._parse(t, p) for p in patterns]
-        ok = reduce(lambda a, b: a | b, [p[2] for p in parsed])
-        date = F.coalesce(*[F.when(p[2], p[0]) for p in parsed])
-        micros = F.coalesce(*[F.when(p[2], p[1]) for p in parsed])
-        return date, micros, ok
+        def text(j: int, comp: str) -> Any:
+            return F.col(f"{p}{j}_t{_SUFFIX[comp]}") if comp in patterns[j].groups else None
 
-    def _date(self, c: Any, kind: str, spec: TipoSpec) -> tuple[Any, Any]:
+        def number(j: int, comp: str, default: int) -> Any:
+            g = text(j, comp)
+            if g is None:
+                return F.lit(default)
+            # componentes de uma correspondência são só dígitos (às vezes com espaço à esquerda, ex.: `%d`)
+            return F.coalesce(F.when(F.length(g) > 0, F.trim(g).cast("int")), F.lit(default))
+
+        stage = {}
+        for j, pat in enumerate(patterns):
+            if "Y" in pat.groups:
+                stage[f"{p}{j}_ano"] = number(j, "Y", 1900)
+            elif "y" in pat.groups:
+                yy = number(j, "y", 0)
+                stage[f"{p}{j}_ano"] = F.when(yy <= 68, yy + 2000).otherwise(yy + 1900)
+            else:
+                stage[f"{p}{j}_ano"] = F.lit(1900)
+            defaults = (("m", 1), ("d", 1), ("H", 0), ("M", 0), ("S", 0), ("tzh", 0), ("tzm", 0), ("tzsec", 0))
+            for comp, default in defaults:
+                stage[f"{p}{j}_{_SUFFIX[comp]}"] = number(j, comp, default)
+            frac = text(j, "f")
+            stage[f"{p}{j}_us"] = (
+                F.lit(0)
+                if frac is None
+                else F.coalesce(
+                    F.when(F.length(frac) > 0, F.rpad(F.substring(frac, 1, 6), 6, "0").cast("long")), F.lit(0)
+                )
+            )
+            sign = text(j, "tzs")
+            stage[f"{p}{j}_neg"] = F.lit(False) if sign is None else F.coalesce(sign == "-", F.lit(False))
+        self.cur = self.cur.withColumns(stage)
+
+        def c(j: int, comp: str) -> Any:
+            return F.col(f"{p}{j}_{_SUFFIX.get(comp, comp)}")
+
+        stage = {}
+        for j in range(n):
+            year, month, day = c(j, "Y"), c(j, "m"), c(j, "d")
+            leap = ((year % 4 == 0) & (year % 100 != 0)) | (year % 400 == 0)
+            days_in_month = (
+                F.when(month == 2, F.when(leap, 29).otherwise(28)).when(month.isin(4, 6, 9, 11), 30).otherwise(31)
+            )
+            valid = (
+                F.col(f"{p}w{j}")
+                & (year >= 1)
+                & (month >= 1)
+                & (month <= 12)
+                & (day >= 1)
+                & (day <= days_in_month)
+                & (c(j, "H") <= 23)
+                & (c(j, "M") <= 59)
+                & (c(j, "S") <= 59)
+                & (c(j, "tzh") <= 23)
+                & (c(j, "tzm") <= 59)
+                & (c(j, "tzsec") <= 59)
+            )
+            # componentes só são comparados se casou (senão podem ser nulos)
+            stage[f"{p}ok{j}"] = F.coalesce(F.when(F.col(f"{p}w{j}"), valid), F.lit(False))
+        self.cur = self.cur.withColumns(stage)
+        self.cur = self.cur.withColumns(
+            {f"{p}d{j}": F.when(F.col(f"{p}ok{j}"), F.make_date(c(j, "Y"), c(j, "m"), c(j, "d"))) for j in range(n)}
+        )
+        ok_any = reduce(lambda a, b: a | b, [F.col(f"{p}ok{j}") for j in range(n)])
+        if not want_ts:
+            self.cur = self.cur.withColumns(
+                {
+                    f"{p}data": F.coalesce(*[F.when(F.col(f"{p}ok{j}"), F.col(f"{p}d{j}")) for j in range(n)]),
+                    f"{p}okany": ok_any,
+                }
+            )
+            return F.col(f"{p}data"), F.col(f"{p}okany")
+        stage = {}
+        for j in range(n):
+            tz = c(j, "tzh") * 3600 + c(j, "tzm") * 60 + c(j, "tzsec")
+            offset = F.when(c(j, "neg"), -tz).otherwise(tz)
+            seconds = c(j, "H") * 3600 + c(j, "M") * 60 + c(j, "S") - offset
+            micros = (
+                F.datediff(F.col(f"{p}d{j}"), F.lit(_EPOCH)).cast("long") * F.lit(_US_PER_DAY)
+                + seconds.cast("long") * F.lit(1_000_000)
+                + c(j, "us")
+            )
+            stage[f"{p}u{j}"] = F.when(F.col(f"{p}ok{j}"), micros)
+        self.cur = self.cur.withColumns(stage)
+        self.cur = self.cur.withColumns(
+            {
+                f"{p}micros": F.coalesce(*[F.when(F.col(f"{p}ok{j}"), F.col(f"{p}u{j}")) for j in range(n)]),
+                f"{p}okany": ok_any,
+            }
+        )
+        micros_col = F.col(f"{p}micros")
+        good = F.coalesce(
+            F.col(f"{p}okany") & (micros_col >= F.lit(_TS_LO)) & (micros_col < F.lit(_TS_HI)), F.lit(False)
+        )
+        self.cur = self.cur.withColumn(f"{p}bom", good)
+        return F.when(F.col(f"{p}bom"), F.timestamp_micros(micros_col)), F.col(f"{p}bom")
+
+    def _date(self, c: Any, kind: str, spec: TipoSpec, p: str) -> tuple[Any, Any]:
         F = self.F
         if kind == "date":
             return c, F.lit(True)
@@ -431,49 +496,41 @@ class _Engine:
         if kind != "string":
             return self._null("date"), F.lit(False)
         formats = [spec.formato] if spec.formato else list(_DATE_FORMATS)
-        date, _, ok = self._first(self._strip(c), [strptime_pattern(f) for f in formats])
-        return date, ok
+        return self._stage_dates(f"{p}s", [strptime_pattern(f) for f in formats], p, want_ts=False)
 
-    def _timestamp(self, c: Any, kind: str, spec: TipoSpec) -> tuple[Any, Any]:
+    def _timestamp(self, c: Any, kind: str, spec: TipoSpec, p: str) -> tuple[Any, Any]:
         F = self.F
+        if kind == "string":
+            if spec.formato:
+                patterns = [strptime_pattern(spec.formato)]
+            else:
+                patterns = [ISO_PATTERN, *(strptime_pattern(f) for f in _TS_FORMATS)]
+            return self._stage_dates(f"{p}s", patterns, p, want_ts=True)
         if kind == "timestamp":
             micros, ok = F.unix_micros(c), F.lit(True)
         elif kind == "date":
             micros, ok = F.datediff(c, F.lit(_EPOCH)).cast("long") * F.lit(_US_PER_DAY), F.lit(True)
-        elif kind == "string":
-            if spec.formato:
-                patterns = [strptime_pattern(spec.formato)]
-            else:
-                patterns = [*ISO_PATTERNS, *(strptime_pattern(f) for f in _TS_FORMATS)]
-            _, micros, ok = self._first(self._strip(c), patterns)
         else:
             return self._null("timestamp"), F.lit(False)
         good = F.coalesce(ok & (micros >= F.lit(_TS_LO)) & (micros < F.lit(_TS_HI)), F.lit(False))
         return F.when(good, F.timestamp_micros(micros)), good
 
-    _TARGET = {"decimal": "double", "inteiro": "long", "booleano": "boolean", "data": "date", "timestamp": "timestamp"}
-
-    def _cast(self, name: str, spec: TipoSpec) -> tuple[Any, Any]:
-        """(coluna convertida, falhou?) — nulo/branco vira nulo sem falha (exceto em `texto`)."""
+    def _convert(self, name: str, spec: TipoSpec, kind: str, p: str) -> tuple[Any, Any]:
+        """(valor, ok) a partir das temporárias da etapa 1 (`{p}s`: texto sem espaços nas pontas)."""
         F = self.F
-        c, kind = self._col(name), self._kind(self._dtype(name))
+        c = self._col(name)
+        t = F.col(f"{p}s") if kind == "string" else None
         if spec.tipo == "texto":
-            return self._text(c, kind, name), F.lit(False)
+            return self._text(c, kind, name), F.lit(True)
         if spec.tipo == "decimal":
-            value, ok = self._decimal(c, kind, spec.separador_decimal or ".")
-        elif spec.tipo == "inteiro":
-            value, ok = self._integer(c, kind, spec)
-        elif spec.tipo == "booleano":
-            value, ok = self._boolean(c, kind)
-        elif spec.tipo == "data":
-            value, ok = self._date(c, kind, spec)
-        else:
-            value, ok = self._timestamp(c, kind, spec)
-        target = self._TARGET[spec.tipo]
-        blank = F.coalesce(self._blank(c, kind), F.lit(False))
-        typed = F.when(blank, self._null(target)).otherwise(F.when(ok, value)).cast(target)
-        bad = F.when(blank, F.lit(False)).otherwise(~F.coalesce(ok, F.lit(False)))
-        return typed, bad
+            return self._decimal(c, kind, spec.separador_decimal or ".", stripped=t)
+        if spec.tipo == "inteiro":
+            return self._integer(c, kind, spec, t, p)
+        if spec.tipo == "booleano":
+            return self._boolean(c, kind, t)
+        if spec.tipo == "data":
+            return self._date(c, kind, spec, p)
+        return self._timestamp(c, kind, spec, p)
 
     # ---------------------------------------------------------------- rejeição
 
@@ -493,9 +550,6 @@ class _Engine:
         )
         self.cur = flagged.filter(F.col(_TMP).isNull()).drop(_TMP)
 
-    def _numeric(self, c: Any, kind: str) -> tuple[Any, Any]:
-        return self._decimal(c, kind, ".")
-
     def _rule_reason(self, regra: RegraRejeicao) -> Any:
         F = self.F
         col = regra.coluna
@@ -504,17 +558,11 @@ class _Engine:
         if regra.regra == "nao_nulo":
             return F.when(blank, F.lit(f"coluna '{col}': valor nulo (regra nao_nulo)"))
         if regra.regra == "regex":
-            try:
-                re.compile(regra.padrao or "")
-            except re.error as exc:
-                raise ConfigError(
-                    f"regra regex da coluna '{col}': padrão inválido ({exc.msg})", operation="transform.rejeitar_se"
-                ) from exc
             passes = self._text(c, kind, col).rlike(regra.padrao or "")
             return F.when(blank, self._null("string")).when(
                 ~passes, F.lit(f"coluna '{col}': valor fora do padrão (regra regex)")
             )
-        number, ok = self._numeric(c, kind)
+        number, ok = self._decimal(c, kind, ".")
         out = F.lit(False)
         if regra.minimo is not None:
             out = out | (number < F.lit(float(regra.minimo)))
@@ -530,34 +578,48 @@ class _Engine:
 
     def renomear(self, mapping: dict[str, str]) -> None:
         present = {old: new for old, new in mapping.items() if old in self._check_columns([old], "renomear")}
-        names = [present.get(c, c) for c in self._user_columns(self.cur)]
-        dup = sorted({n for n in names if names.count(n) > 1})
-        if dup:
-            raise ConfigError(
-                f"operação 'renomear' geraria colunas duplicadas: {', '.join(repr(d) for d in dup)}",
-                operation="transform.renomear",
-            )
+        check_rename(self._user_columns(self.cur), present)
         self.cur = self.cur.select(
             *[self._col(c).alias(present.get(c, c)) for c in self._user_columns(self.cur)], self.F.col(ROW_ID)
         )
 
     def tipar(self, specs: dict[str, TipoSpec]) -> None:
         F = self.F
-        for spec in specs.values():
-            if spec.separador_decimal not in (None, ".", ","):
-                raise ConfigError(
-                    "separador_decimal deve ser '.' ou ',' (o outro é usado como separador de milhar)",
-                    operation="transform.tipar",
-                )
         cols = self._check_columns(list(specs), "tipar")
         if not cols:
             return
-        casts = {c: self._cast(c, specs[c]) for c in cols}
-        bad_names = {c: f"_dataeng_falha_{i}" for i, c in enumerate(cols)}
+        prefixes = {c: f"{RESERVED_PREFIX}c{i}_" for i, c in enumerate(cols)}
+        kinds = {c: self._kind(self._dtype(c)) for c in cols}
+        # etapa 1: branco e texto sem espaços nas pontas (uma regex cada)
+        stage: dict[str, Any] = {}
+        for c in cols:
+            stage[prefixes[c] + "branco"] = F.coalesce(self._blank(self._col(c), kinds[c]), F.lit(False))
+            if kinds[c] == "string":
+                stage[prefixes[c] + "s"] = self._strip(self._col(c).cast("string"))
+        self.cur = self.cur.withColumns(stage)
+        # etapa 2 (datas: várias): valor e ok de cada coluna
+        for c in cols:
+            p = prefixes[c]
+            value, ok = self._convert(c, specs[c], kinds[c], p)
+            self.cur = self.cur.withColumns({p + "v": value, p + "ok": F.coalesce(ok, F.lit(False))})
+        # etapa final: colunas tipadas e marcas de falha (expressões curtas sobre as temporárias)
+        typed: dict[str, Any] = {}
+        bad: dict[str, Any] = {}
+        for c in cols:
+            p = prefixes[c]
+            if specs[c].tipo == "texto":
+                typed[c], bad[c] = F.col(p + "v"), F.lit(False)
+                continue
+            target = _TARGET[specs[c].tipo]
+            typed[c] = (
+                F.when(F.col(p + "branco"), self._null(target)).otherwise(F.when(F.col(p + "ok"), F.col(p + "v")))
+            ).cast(target)
+            bad[c] = F.when(F.col(p + "branco"), F.lit(False)).otherwise(~F.col(p + "ok"))
+        bad_names = {c: prefixes[c] + "falha" for c in cols}
         self.cur = self.cur.select(
-            *[casts[c][0].alias(c) if c in casts else self._col(c) for c in self._user_columns(self.cur)],
+            *[typed[c].alias(c) if c in typed else self._col(c) for c in self._user_columns(self.cur)],
             F.col(ROW_ID),
-            *[casts[c][1].alias(bad_names[c]) for c in cols],
+            *[bad[c].alias(bad_names[c]) for c in cols],
         )
         motivos = [
             F.when(F.col(bad_names[c]), F.lit(f"coluna '{c}': valor não convertível para {specs[c].tipo}"))
@@ -613,17 +675,18 @@ class _Engine:
         F = self.F
         fn = resolve_hook(ref, project_root=self.root)
         try:
-            out = fn(self.cur)
+            out: Any = fn(self.cur)  # DataFrame do PySpark (o tipo `Hook` descreve o pandas)
         except Exception as exc:
             raise DataEngError(
                 f"o gancho '{ref}' falhou ({type(exc).__name__}); veja o traceback e corrija a função",
                 operation="transform.hook",
             ) from exc
-        if not isinstance(out, self.DataFrame):
+        if not _is_dataframe(out):
             raise DataEngError(
                 f"o gancho '{ref}' deve devolver um DataFrame do PySpark, mas devolveu {type(out).__name__}",
                 operation="transform.hook",
             )
+        check_reserved(out.columns, f"saída do gancho '{ref}'")
         try:  # o Spark é preguiçoso: o código do gancho só roda aqui
             out = out.localCheckpoint()
             stable = False
@@ -658,7 +721,13 @@ class _Engine:
 
 
 def apply_transform_spark(df: Any, ops: Sequence[TransformOp], *, project_root: Path) -> SparkTransformResult:
-    """Aplica `ops` na ordem declarada sobre um `pyspark.sql.DataFrame`; linhas ruins vão para `rejected`."""
+    """Aplica `ops` na ordem declarada sobre um DataFrame do PySpark; linhas ruins vão para `rejected`.
+
+    Erros de configuração que não dependem dos dados (formato de data não suportado, separador, regex inválida)
+    são levantados antes de qualquer ação sobre o DataFrame.
+    """
+    _pyspark()
+    validate_ops(ops)
     engine = _Engine(df, Path(project_root))
     for op in ops:
         if op.renomear is not None:
@@ -681,7 +750,7 @@ def apply_transform_spark(df: Any, ops: Sequence[TransformOp], *, project_root: 
 
 def pandas_to_spark(spark: Any, df: pd.DataFrame) -> Any:
     """DataFrame pandas → Spark com TODAS as colunas texto (como a ingestão as entrega): nulo vira nulo."""
-    _, T, _, _ = _pyspark()
+    _, T, _ = _pyspark()
     schema = T.StructType([T.StructField(str(c), T.StringType(), True) for c in df.columns])
     data = [tuple(None if _is_null(v) else _to_text(v) for v in row) for row in df.itertuples(index=False, name=None)]
     return spark.createDataFrame(data, schema=schema)
@@ -689,7 +758,7 @@ def pandas_to_spark(spark: Any, df: pd.DataFrame) -> Any:
 
 def spark_to_pandas(df: Any) -> pd.DataFrame:
     """DataFrame Spark → pandas com os dtypes do motor pandas; timestamps em UTC, sem depender do fuso da sessão."""
-    F, T, _, _ = _pyspark()
+    F, T, _ = _pyspark()
     fields = list(df.schema.fields)
     exprs = [
         F.unix_micros(F.col("`" + f.name.replace("`", "``") + "`")).alias(f.name)

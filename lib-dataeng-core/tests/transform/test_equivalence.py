@@ -21,16 +21,11 @@ import pytest
 
 from dataeng_core.base.errors import ConfigError, DataEngError
 from dataeng_core.base.pipeline import TransformOp
+from dataeng_core.transform._date_patterns import ISO_PATTERN, MARK, SEP, WS_JAVA, DatePattern, strptime_pattern
 from dataeng_core.transform.engine_pandas import _DATE_FORMATS, _TS_FORMATS, apply_transform
-from dataeng_core.transform.engine_spark import (
-    ISO_PATTERNS,
-    DatePattern,
-    apply_transform_spark,
-    pandas_to_spark,
-    spark_to_pandas,
-    strptime_pattern,
-)
+from dataeng_core.transform.engine_spark import apply_transform_spark, pandas_to_spark, spark_to_pandas
 
+BACKSLASH = chr(92)
 WS_PY = r"[\s\x1c-\x1f]"  # a mesma classe que WS_JAVA, na sintaxe do Python
 
 
@@ -288,12 +283,17 @@ def test_spark_engine_import_is_lazy(tmp_path: Path) -> None:
 
 
 def _match(pattern: DatePattern, text: str) -> dict[str, str] | None:
-    """Simula em Python o que o Spark faz com a regex: primeira correspondência no início, cobrindo tudo."""
-    regex = pattern.regex.replace(r"[\p{IsWhite_Space}\x1c-\x1f]", WS_PY)
-    m = re.match(regex, text)
-    if m is None or m.group(0) != text:
+    """Simula em Python o que o Spark faz: UMA `regexp_replace` (marcadores + grupos) e `split` pelo separador."""
+    regex = pattern.regex.replace(WS_JAVA, WS_PY)
+    replacement = re.sub(
+        r"\$(\d+)", lambda m: BACKSLASH + "g<" + m.group(1) + ">", pattern.replacement
+    )  # `$n` do Java vira `\g<n>` do Python
+    replaced = re.sub(regex, replacement, text, count=1)
+    if MARK in text or not (replaced.startswith(MARK) and replaced.endswith(MARK)):
         return None
-    return {k: "".join(m.group(i) or "" for i in idx) for k, idx in pattern.groups.items()}
+    items = replaced.replace(MARK, "").split(SEP)
+    assert len(items) == pattern.n_groups
+    return {k: items[g - 1] for k, g in pattern.groups.items()}
 
 
 _STRPTIME_SAMPLES = [
@@ -405,12 +405,12 @@ def test_iso_patterns_agree_with_fromisoformat() -> None:
     for text in supported:
         expected = dt.datetime.fromisoformat(text)
         expected = expected.replace(tzinfo=dt.UTC) if expected.tzinfo is None else expected.astimezone(dt.UTC)
-        found = [p for p in (_match(pat, text) for pat in ISO_PATTERNS) if p is not None]
-        assert len(found) == 1, text
-        assert _iso_value(found[0]) == expected, text
+        found = _match(ISO_PATTERN, text)
+        assert found is not None, text
+        assert _iso_value(found) == expected, text
     # recusados pelos dois (o Spark ainda valida 25h, mês 13 etc. depois da regex)
     for text in ("lixo", "2024-01", "2024/01/31", "31-01-2024", "2024-01-31T", "2024-01-31T10:1"):
-        assert all(_match(pat, text) is None for pat in ISO_PATTERNS), text
+        assert _match(ISO_PATTERN, text) is None, text
         with pytest.raises(ValueError):
             dt.datetime.fromisoformat(text)
 
@@ -432,8 +432,15 @@ def test_repeated_year_directive_is_config_error() -> None:
 
 @pytest.fixture(params=[False, True], ids=["ansi_desligado", "ansi_ligado"])
 def spark_ansi(spark: Any, request: pytest.FixtureRequest) -> Iterator[Any]:
+    before = spark.conf.get("spark.sql.ansi.enabled", None)
     spark.conf.set("spark.sql.ansi.enabled", "true" if request.param else "false")
-    yield spark
+    try:
+        yield spark
+    finally:  # resultado independente da ordem dos testes
+        if before is None:
+            spark.conf.unset("spark.sql.ansi.enabled")
+        else:
+            spark.conf.set("spark.sql.ansi.enabled", before)
 
 
 @pytest.mark.spark
@@ -565,7 +572,10 @@ def test_spark_hook_errors_are_data_errors_without_message(spark: Any, tmp_path:
     assert "ValueError" in str(exc.value) and "segredo-123" not in str(exc.value) and "h:explode" in str(exc.value)
     with pytest.raises(DataEngError) as exc:
         _spark_run(spark, root, {"v": ["1"]}, {"hook": "h:preguicoso"})
-    assert "falhou ao ser executado" in str(exc.value) and "segredo-456" not in str(exc.value)
+    from pyspark.errors import PythonException  # PySpark >= 3.4: erro de UDF ao executar
+
+    assert "falhou ao ser executado (PythonException)" in str(exc.value) and "segredo-456" not in str(exc.value)
+    assert isinstance(exc.value.__cause__, PythonException)
 
 
 @pytest.mark.spark

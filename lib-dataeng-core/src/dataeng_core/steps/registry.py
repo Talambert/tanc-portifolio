@@ -168,9 +168,10 @@ def run_pipeline(pipeline: Pipeline, ctx: StepContext, *, only: Sequence[str] | 
 
     results: list[StepResult] = []
     failed: str | None = None
+    reason = "falhou"
     for step in steps:
         if failed is not None:
-            skipped = StepResult(step.id, "nao_executada", detail=f"não executada porque a etapa '{failed}' falhou")
+            skipped = StepResult(step.id, "nao_executada", detail=f"não executada porque a etapa '{failed}' {reason}")
             token = run_id_var.set(ctx.run_id)
             try:
                 results.append(_record(ctx, skipped))
@@ -181,4 +182,6 @@ def run_pipeline(pipeline: Pipeline, ctx: StepContext, *, only: Sequence[str] | 
         results.append(result)
         if result.status != "ok":
             failed = step.id
+            if result.status == "nao_executada":  # ex.: etapa spark no modo gcp, delegada ao lote da DAG
+                reason = "não foi executada neste modo (delegada à DAG)"
     return results

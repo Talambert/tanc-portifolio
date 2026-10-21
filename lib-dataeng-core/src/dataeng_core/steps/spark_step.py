@@ -2,8 +2,10 @@
 
 Modo `local` (`env.modo == "local"`): executa `spark-submit --master local[*]` sobre o script, sem shell (lista de
 argumentos), com tempo limite (`dataproc.timeout_local`, em segundos; padrão 3600) e diretório de trabalho na raiz
-do projeto. O script recebe `--etapa <id> --run-id <run_id>` e um `--param chave=valor` por parâmetro do contexto
-(os do pipeline e do ambiente, `run_id` e `ingestion_date`; nenhum segredo). `PYSPARK_PYTHON` e
+do projeto. No tempo limite a árvore de processos inteira é encerrada (`taskkill /T /F` no Windows, grupo de
+processos nos demais). No Windows, argumentos com `& | < > ^ %` são recusados (o `spark-submit.cmd` passa pelo
+cmd.exe, que os interpretaria). O script recebe `--etapa <id> --run-id <run_id>` e um `--param chave=valor` por
+parâmetro do contexto (os do pipeline e do ambiente, `run_id` e `ingestion_date`; nenhum segredo). `PYSPARK_PYTHON` e
 `PYSPARK_DRIVER_PYTHON` apontam para este interpretador, se não estiverem definidos. A saída completa do processo
 (stdout e stderr) vai para `<pasta_local>/logs/spark/<etapa>_<run_id>.log`; o resultado, o log da biblioteca e a
 tabela de controle trazem só o código de saída, a referência e o caminho desse arquivo (nunca a saída, que pode
@@ -22,9 +24,12 @@ from __future__ import annotations
 import os
 import secrets as _secrets
 import shutil
+import signal
 import subprocess
 import sys
+from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 from dataeng_core.base.errors import ConfigError
 from dataeng_core.base.pipeline import SparkStep, Step
@@ -95,11 +100,55 @@ def spark_submit_command(step: SparkStep, ctx: StepContext, submit: str, script:
     ]
 
 
+# o spark-submit do Windows é um .cmd: roda pelo cmd.exe, e `list2cmdline` não protege estes caracteres
+_CMD_META = set("&|<>^%")
+
+
+def _is_windows() -> bool:
+    return sys.platform == "win32"
+
+
+def _check_windows_args(step: SparkStep, cmd: Sequence[str]) -> None:
+    bad = [arg for arg in cmd[1:] if _CMD_META.intersection(arg)]
+    if bad:
+        names = [a.split("=", 1)[0] if "=" in a else a[:60] for a in bad]
+        raise ConfigError(
+            f"etapa '{step.id}': no Windows o spark-submit roda pelo cmd.exe, que interpreta os caracteres "
+            f"& | < > ^ %; eles aparecem em: {', '.join(names)}. Retire-os desses parâmetros ou caminhos "
+            "(ou rode a etapa em Linux)",
+            operation=f"spark.{step.id}",
+        )
+
+
+def _kill_tree(proc: subprocess.Popen[bytes]) -> None:
+    """Encerra o spark-submit e os filhos (a JVM), não só o processo de entrada."""
+    try:
+        if _is_windows():
+            subprocess.run(
+                ["taskkill", "/T", "/F", "/PID", str(proc.pid)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+                timeout=60,
+            )
+        else:
+            os.killpg(proc.pid, getattr(signal, "SIGKILL", 9))  # type: ignore[attr-defined,unused-ignore]
+    except Exception:  # falhar ao encerrar não pode esconder o resultado (tempo limite)
+        pass
+    try:
+        proc.kill()
+        proc.wait(timeout=60)
+    except Exception:  # falhar ao encerrar não pode esconder o resultado (tempo limite)
+        pass
+
+
 def _run_local(step: SparkStep, ctx: StepContext) -> StepResult:
     rel = step.script.as_posix()
     script = _script_path(step, ctx.project_root)
     timeout = _timeout(step)
     cmd = spark_submit_command(step, ctx, _spark_submit(step), script)
+    if _is_windows():
+        _check_windows_args(step, cmd)
     env = dict(os.environ)
     env.setdefault("PYSPARK_PYTHON", sys.executable)
     env.setdefault("PYSPARK_DRIVER_PYTHON", sys.executable)
@@ -107,11 +156,28 @@ def _run_local(step: SparkStep, ctx: StepContext) -> StepResult:
     log_file.parent.mkdir(parents=True, exist_ok=True)
     reference = _secrets.token_hex(4)
     with open(log_file, "wb") as out:
+        # grupo de processos próprio: no tempo limite a árvore inteira (spark-submit e JVM) é encerrada
+        group: dict[str, Any] = (
+            {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x200)}
+            if _is_windows()
+            else {"start_new_session": True}
+        )
         try:
-            proc = subprocess.run(
-                cmd, cwd=ctx.project_root, env=env, stdout=out, stderr=subprocess.STDOUT, timeout=timeout, check=False
+            proc = subprocess.Popen(cmd, cwd=ctx.project_root, env=env, stdout=out, stderr=subprocess.STDOUT, **group)
+        except OSError as exc:
+            log.error(f"etapa '{step.id}': spark-submit não iniciou ({type(exc).__name__}) [referência {reference}]")
+            return StepResult(
+                step.id,
+                "falha",
+                detail=(
+                    f"não foi possível iniciar o spark-submit ({type(exc).__name__}, referência {reference}); "
+                    "verifique a instalação do Spark e do Java"
+                ),
             )
+        try:
+            returncode = proc.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
+            _kill_tree(proc)
             log.error(
                 f"etapa '{step.id}': spark-submit excedeu {timeout} s [referência {reference}]; saída em {log_file}"
             )
@@ -124,26 +190,16 @@ def _run_local(step: SparkStep, ctx: StepContext) -> StepResult:
                     f"veja a saída em {log_file}; aumente `dataproc.timeout_local` ou otimize o script"
                 ),
             )
-        except OSError as exc:
-            log.error(f"etapa '{step.id}': spark-submit não iniciou ({type(exc).__name__}) [referência {reference}]")
-            return StepResult(
-                step.id,
-                "falha",
-                detail=(
-                    f"não foi possível iniciar o spark-submit ({type(exc).__name__}, referência {reference}); "
-                    "verifique a instalação do Spark e do Java"
-                ),
-            )
-    if proc.returncode != 0:
+    if returncode != 0:
         log.error(
-            f"etapa '{step.id}': spark-submit terminou com código {proc.returncode} [referência {reference}]; "
+            f"etapa '{step.id}': spark-submit terminou com código {returncode} [referência {reference}]; "
             f"saída em {log_file}"
         )
         return StepResult(
             step.id,
             "falha",
             detail=(
-                f"o script {rel} falhou: spark-submit terminou com código {proc.returncode} (referência {reference}); "
+                f"o script {rel} falhou: spark-submit terminou com código {returncode} (referência {reference}); "
                 f"veja a saída em {log_file}, corrija o script e reexecute a etapa"
             ),
         )

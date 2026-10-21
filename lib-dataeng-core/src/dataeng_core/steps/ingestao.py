@@ -60,6 +60,7 @@ from dataeng_core.sql.render import render_sql, split_with_lines
 from dataeng_core.steps.context import StepContext, StepResult, resolve_ingestion_date
 from dataeng_core.steps.registry import log_unexpected, register_step_type, step_secrets
 from dataeng_core.transform.engine_pandas import MOTIVO, apply_transform
+from dataeng_core.transform.hooks import HookImportError
 from dataeng_core.warehouse.base import LoadMode, split_table, validate_identifier
 
 log = get_logger(__name__)
@@ -541,6 +542,9 @@ def run_ingestao(step: Step, ctx: StepContext) -> StepResult:
     try:
         return _ingest(step, ctx, prog)
     except DataEngError as exc:
+        if isinstance(exc, HookImportError):  # a mensagem só tem a classe: o traceback vai para o log
+            cause = exc.__cause__ if isinstance(exc.__cause__, BaseException) else exc
+            log_unexpected(step.id, cause, secrets, where=f" ao importar o gancho [referência {exc.reference}]")
         detail = f"falha na fase '{prog.phase}': {exc}"
     except Exception as exc:  # nunca deixar exceção crua; a mensagem dela pode conter valores dos dados
         log_unexpected(step.id, exc, secrets, where=f" na fase '{prog.phase}'")

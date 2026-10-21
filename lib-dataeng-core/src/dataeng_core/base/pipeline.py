@@ -121,6 +121,13 @@ Normalizacao = Literal["apenas_digitos", "trim", "maiusculas", "minusculas", "co
 
 
 class TipoSpec(_Model):
+    """Tipo de uma coluna em `tipar`.
+
+    `formato` (data/timestamp) segue o `strptime`. O motor pandas aceita todas as diretivas; o motor Spark só
+    `%Y %y %m %d %H %M %S %f %%`, e qualquer outra (`%b`, `%z`, `%j`, `%p`...) é `ConfigError` ao montar a
+    transformação, antes de tocar nos dados.
+    """
+
     tipo: TipoColuna
     separador_decimal: str | None = None
     formato: str | None = None

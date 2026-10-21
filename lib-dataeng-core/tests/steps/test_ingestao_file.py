@@ -651,3 +651,20 @@ def test_unexpected_error_is_logged_with_redacted_traceback(
     assert result.status == "falha" and "RuntimeError" in result.detail
     assert "Traceback" in err and "RuntimeError" in err and "in boom" in err
     assert secret not in err and secret not in result.detail
+
+
+def test_hook_import_failure_does_not_leak_the_exception_message(
+    project: Path, make_ctx: MakeCtx, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (project / "custom").mkdir()
+    (project / "custom" / "__init__.py").write_text("", encoding="utf-8")
+    (project / "custom" / "limpa.py").write_text("raise ValueError('CNPJ SENTINELA-654 inválido')\n", encoding="utf-8")
+    pipe = pipeline(ingest_step(transformacao=[{"hook": "custom.limpa:f"}]))
+    ctx = make_ctx(pipe)
+    result = run_step(pipe.get("ingere"), ctx)
+    assert result.status == "falha"
+    assert "(ValueError)" in result.detail and "custom.limpa" in result.detail
+    err = capsys.readouterr().err
+    assert "Traceback" in err and "ValueError" in err  # o diagnóstico vai para o log
+    for text in (result.detail, str(rows(ctx, "SELECT * FROM silver._controle_execucoes"))):
+        assert "SENTINELA-654" not in text

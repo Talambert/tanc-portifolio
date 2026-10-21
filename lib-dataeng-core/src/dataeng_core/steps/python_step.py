@@ -1,5 +1,7 @@
 """Etapa `python`: chama `funcao(ctx)` (`"modulo:funcao"`, resolvida a partir da raiz do projeto).
 
+Falha ao IMPORTAR o módulo da função tem o mesmo tratamento (só a classe e a referência no resultado).
+
 A função recebe o `StepContext` (storage, warehouse, parâmetros, run_id...) e devolve `StepResult` ou `None`
 (`None` vira `ok`). Um `StepResult` devolvido é gravado com o id da etapa, mesmo que traga outro.
 
@@ -18,14 +20,28 @@ from dataeng_core.base.pipeline import PythonStep, Step
 from dataeng_core.base.runtime import redact
 from dataeng_core.steps.context import StepContext, StepResult
 from dataeng_core.steps.registry import log_unexpected, register_step_type, step_secrets
-from dataeng_core.transform.hooks import resolve_hook
+from dataeng_core.transform.hooks import HookImportError, resolve_hook
+
+_CONTRACT = "exatamente um argumento (o contexto da etapa, StepContext) e devolver StepResult ou None"
 
 
 def _run_python_step(step: Step, ctx: StepContext) -> StepResult:
     if not isinstance(step, PythonStep):
         raise ConfigError(f"a etapa '{step.id}' não é do tipo python", operation="python")
-    fn = resolve_hook(step.funcao, project_root=ctx.project_root)  # ConfigError acionável se não existir
     secrets = step_secrets(step)
+    try:  # formato inválido, módulo ou função ausente: ConfigError acionável (sem dados do usuário)
+        fn = resolve_hook(step.funcao, project_root=ctx.project_root, contract=_CONTRACT)
+    except HookImportError as exc:  # o módulo levantou exceção ao ser importado: só a classe, traceback no log
+        cause = exc.__cause__ if isinstance(exc.__cause__, BaseException) else exc
+        log_unexpected(step.id, cause, secrets, where=f" ao importar {step.funcao} [referência {exc.reference}]")
+        return StepResult(
+            step.id,
+            "falha",
+            detail=(
+                f"a função {step.funcao} não pôde ser importada ({type(cause).__name__}); referência {exc.reference}; "
+                "veja o log com essa referência, corrija o módulo e reexecute a etapa"
+            ),
+        )
     try:
         returned = fn(ctx)  # type: ignore[arg-type]  # o gancho da etapa recebe o contexto, não um DataFrame
     except Exception as exc:
@@ -47,7 +63,8 @@ def _run_python_step(step: Step, ctx: StepContext) -> StepResult:
             "falha",
             detail=f"a função {step.funcao} devolveu {type(returned).__name__}; ela deve devolver StepResult ou None",
         )
-    return dataclasses.replace(returned, step_id=step.id, detail=redact(returned.detail, secrets))
+    detail = "" if returned.detail is None else str(returned.detail)
+    return dataclasses.replace(returned, step_id=step.id, detail=redact(detail, secrets))
 
 
 register_step_type("python", _run_python_step)

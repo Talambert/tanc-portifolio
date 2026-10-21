@@ -52,11 +52,24 @@ def _purge_stale_modules(root: Path) -> None:
             del sys.modules[key]
 
 
-def resolve_hook(ref: str, *, project_root: Path) -> Hook:
+class HookImportError(ConfigError):
+    """O módulo do usuário levantou exceção ao ser importado.
+
+    A mensagem traz só a CLASSE da exceção (o texto dela pode conter dados); a exceção original fica em
+    `__cause__`, para quem chama registrar o traceback (redigido) no log com a `reference` deste erro.
+    """
+
+
+_HOOK_CONTRACT = "exatamente um argumento (o DataFrame) e devolver um DataFrame"
+
+
+def resolve_hook(ref: str, *, project_root: Path, contract: str = _HOOK_CONTRACT) -> Hook:
     """Importa `modulo:funcao` de dentro de `project_root` (que fica no início do `sys.path`).
 
     Só executa o import do módulo; a função não é chamada aqui. Efeito colateral: `sys.path` fica com
-    `project_root` na frente até o próximo `resolve_hook` (que troca a raiz).
+    `project_root` na frente até o próximo `resolve_hook` (que troca a raiz). `contract` descreve, na mensagem
+    de assinatura incompatível, o que a função deve aceitar e devolver (a etapa `python` recebe o contexto).
+    Exceção no import do módulo vira `HookImportError` (sem o texto da exceção).
     """
     match = _REF.match(ref)
     if not match:
@@ -76,6 +89,7 @@ def resolve_hook(ref: str, *, project_root: Path) -> Hook:
         )
 
     caminho_antes = list(sys.path)
+    raizes_antes = list(_HOOK_ROOTS)
     modulos_antes = set(sys.modules)
     raiz = str(root)
     _purge_stale_modules(root)
@@ -92,11 +106,14 @@ def resolve_hook(ref: str, *, project_root: Path) -> Hook:
         mod = importlib.import_module(module)
     except Exception as exc:
         sys.path[:] = caminho_antes
-        _HOOK_ROOTS[:] = [r for r in _HOOK_ROOTS if r in sys.path]
+        # a raiz anterior volta ao sys.path: continua registrada, para o próximo resolve_hook a retirar
+        _HOOK_ROOTS[:] = [r for r in raizes_antes if r in sys.path]
         for key in set(sys.modules) - modulos_antes:
             del sys.modules[key]
-        raise ConfigError(
-            f"gancho '{ref}': falha ao importar o módulo '{module}' ({type(exc).__name__}: {exc})",
+        # um pacote (ex.: `custom`) que já existia com o mesmo nome foi trocado pelo desta raiz: esquece-o também
+        _purge_stale_modules(root)
+        raise HookImportError(
+            f"gancho '{ref}': falha ao importar o módulo '{module}' ({type(exc).__name__}); o traceback está no log",
             operation="transform.hook",
         ) from exc
 
@@ -114,8 +131,7 @@ def resolve_hook(ref: str, *, project_root: Path) -> Hook:
         inspect.signature(fn).bind(object())
     except TypeError as exc:
         raise ConfigError(
-            f"gancho '{ref}': a função '{func}' deve aceitar exatamente um argumento (o DataFrame) "
-            "e devolver um DataFrame",
+            f"gancho '{ref}': a função '{func}' deve aceitar {contract}",
             operation="transform.hook",
         ) from exc
     except ValueError:

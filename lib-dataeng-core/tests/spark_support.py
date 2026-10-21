@@ -1,7 +1,8 @@
 """Fixture `spark`: sessão local do PySpark, pulada sem o PySpark (extra [spark]) ou sem Java.
 
-Exposta pelos `conftest.py` de `tests/transform` e `tests/jobs`. Não há `tests/conftest.py` de propósito: ele
-poria `tests/` no `sys.path`, e `tests/airflow/` passaria a ser importável como o pacote `airflow`.
+Exposta pelos `conftest.py` de `tests/transform` e `tests/jobs` (importam a MESMA função). A sessão é criada uma
+vez e guardada aqui; `stop()` é registrado uma única vez no fim da sessão de testes. Não há `tests/conftest.py`
+de propósito: ele poria `tests/` no `sys.path`, e `tests/airflow/` passaria a ser importável como `airflow`.
 """
 
 from __future__ import annotations
@@ -9,7 +10,7 @@ from __future__ import annotations
 import importlib.util
 import os
 import shutil
-from collections.abc import Iterator
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -36,20 +37,31 @@ SPARK_MISSING = [
     if not ok
 ]
 
+_SESSION: list[Any] = []
+
+
+def _stop() -> None:
+    while _SESSION:
+        _SESSION.pop().stop()
+
 
 @pytest.fixture(scope="session")
-def spark() -> Iterator[Any]:
+def spark(request: pytest.FixtureRequest) -> Any:
     if SPARK_MISSING:
         pytest.skip("sem " + " e ".join(SPARK_MISSING) + "; os testes de Spark rodam no CI (Linux)")
-    from pyspark.sql import SparkSession
+    if not _SESSION:
+        # os workers Python do Spark usam o mesmo interpretador dos testes (com dataeng_core instalado)
+        os.environ.setdefault("PYSPARK_PYTHON", sys.executable)
+        os.environ.setdefault("PYSPARK_DRIVER_PYTHON", sys.executable)
+        from pyspark.sql import SparkSession
 
-    session = (
-        SparkSession.builder.master("local[1]")
-        .appName("dataeng-core-testes")
-        .config("spark.sql.session.timeZone", "UTC")
-        .config("spark.sql.shuffle.partitions", "1")
-        .config("spark.ui.enabled", "false")
-        .getOrCreate()
-    )
-    yield session
-    session.stop()
+        _SESSION.append(
+            SparkSession.builder.master("local[1]")
+            .appName("dataeng-core-testes")
+            .config("spark.sql.session.timeZone", "UTC")
+            .config("spark.sql.shuffle.partitions", "1")
+            .config("spark.ui.enabled", "false")
+            .getOrCreate()
+        )
+        request.config.add_cleanup(_stop)
+    return _SESSION[0]

@@ -21,15 +21,20 @@ SUBMIT = "/opt/spark/bin/spark-submit"
 
 
 class FakeRun:
-    """Substitui `subprocess.run`: registra a chamada, escreve a saída no arquivo recebido e devolve o código."""
+    """Substitui `subprocess.Popen`: registra a chamada, escreve a saída no arquivo recebido e simula o processo."""
 
-    def __init__(self, returncode: int = 0, output: str = "", raises: BaseException | None = None) -> None:
+    def __init__(
+        self, returncode: int = 0, output: str = "", raises: BaseException | None = None, hangs: bool = False
+    ) -> None:
         self.returncode = returncode
         self.output = output
         self.raises = raises
+        self.hangs = hangs
+        self.killed = False
         self.calls: list[tuple[list[str], dict[str, Any]]] = []
+        self.waits: list[float | None] = []
 
-    def __call__(self, cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[bytes]:
+    def __call__(self, cmd: list[str], **kwargs: Any) -> FakeRun:
         self.calls.append((list(cmd), kwargs))
         out = kwargs.get("stdout")
         if out is not None and self.output:
@@ -37,7 +42,18 @@ class FakeRun:
             out.flush()
         if self.raises is not None:
             raise self.raises
-        return subprocess.CompletedProcess(cmd, self.returncode)
+        return self
+
+    pid = 4242
+
+    def wait(self, timeout: float | None = None) -> int:
+        self.waits.append(timeout)
+        if self.hangs and not self.killed:
+            raise subprocess.TimeoutExpired(cmd="spark-submit", timeout=timeout or 0)
+        return self.returncode
+
+    def kill(self) -> None:
+        self.killed = True
 
 
 @pytest.fixture
@@ -75,7 +91,7 @@ def test_local_mode_runs_spark_submit_with_exact_command(
     monkeypatch.delenv("PYSPARK_PYTHON", raising=False)
     monkeypatch.delenv("PYSPARK_DRIVER_PYTHON", raising=False)
     fake = FakeRun(output="linha de log do spark\n")
-    monkeypatch.setattr(spark_step.subprocess, "run", fake)
+    monkeypatch.setattr(spark_step.subprocess, "Popen", fake)
     pipe = _spark_pipeline()
     ctx = make_ctx(pipe)
 
@@ -102,7 +118,7 @@ def test_local_mode_runs_spark_submit_with_exact_command(
     ]
     assert "--param" in cmd and f"run_id={RID1}" in cmd and "ingestion_date=2026-01-01" in cmd
     assert kwargs["cwd"] == project.resolve()
-    assert kwargs["timeout"] == spark_step.DEFAULT_TIMEOUT_S == 3600
+    assert fake.waits == [spark_step.DEFAULT_TIMEOUT_S] and spark_step.DEFAULT_TIMEOUT_S == 3600
     assert kwargs.get("shell", False) is False
     assert kwargs["stderr"] == subprocess.STDOUT
     assert kwargs["env"]["PYSPARK_PYTHON"] == sys.executable
@@ -117,7 +133,7 @@ def test_local_mode_keeps_user_pyspark_python(
     _script(project)
     monkeypatch.setenv("PYSPARK_PYTHON", "/usr/bin/python3.11")
     fake = FakeRun()
-    monkeypatch.setattr(spark_step.subprocess, "run", fake)
+    monkeypatch.setattr(spark_step.subprocess, "Popen", fake)
     pipe = _spark_pipeline()
     run_step(pipe.get("recalcula"), make_ctx(pipe))
     assert fake.calls[0][1]["env"]["PYSPARK_PYTHON"] == "/usr/bin/python3.11"
@@ -128,7 +144,7 @@ def test_process_failure_is_failed_with_reference_and_no_raw_output(
 ) -> None:
     _script(project)
     fake = FakeRun(returncode=3, output="Traceback: valor 123.456.789-00 inválido\n")
-    monkeypatch.setattr(spark_step.subprocess, "run", fake)
+    monkeypatch.setattr(spark_step.subprocess, "Popen", fake)
     pipe = _spark_pipeline()
     ctx = make_ctx(pipe)
 
@@ -154,13 +170,14 @@ def test_timeout_is_failed_with_reference(
     project: Path, make_ctx: MakeCtx, fake_submit: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _script(project)
-    fake = FakeRun(raises=subprocess.TimeoutExpired(cmd="spark-submit", timeout=5))
-    monkeypatch.setattr(spark_step.subprocess, "run", fake)
+    fake = FakeRun(hangs=True)
+    monkeypatch.setattr(spark_step.subprocess, "Popen", fake)
+    monkeypatch.setattr(spark_step, "_kill_tree", lambda proc: proc.kill())  # nunca encerra processo real
     pipe = _spark_pipeline(dataproc={"runtime": "2.2", "timeout_local": 5})
 
     result = run_step(pipe.get("recalcula"), make_ctx(pipe))
 
-    assert fake.calls[0][1]["timeout"] == 5
+    assert fake.waits[0] == 5 and fake.killed
     assert result.status == "falha"
     assert re.fullmatch(
         r"o script spark/recalcula\.py excedeu o tempo limite de 5 s e foi interrompido "
@@ -176,7 +193,7 @@ def test_invalid_timeout_is_config_error(
 ) -> None:
     _script(project)
     fake = FakeRun()
-    monkeypatch.setattr(spark_step.subprocess, "run", fake)
+    monkeypatch.setattr(spark_step.subprocess, "Popen", fake)
     pipe = _spark_pipeline(dataproc={"timeout_local": value})
     result = run_step(pipe.get("recalcula"), make_ctx(pipe))
     assert result.status == "falha"
@@ -188,7 +205,7 @@ def test_launch_error_is_failed_without_message(
     project: Path, make_ctx: MakeCtx, fake_submit: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _script(project)
-    monkeypatch.setattr(spark_step.subprocess, "run", FakeRun(raises=PermissionError("acesso negado a /segredo")))
+    monkeypatch.setattr(spark_step.subprocess, "Popen", FakeRun(raises=PermissionError("acesso negado a /segredo")))
     pipe = _spark_pipeline()
     result = run_step(pipe.get("recalcula"), make_ctx(pipe))
     assert result.status == "falha"
@@ -203,7 +220,7 @@ def test_missing_spark_submit_is_actionable(project: Path, make_ctx: MakeCtx, mo
     _script(project)
     monkeypatch.setattr(spark_step.shutil, "which", lambda name: None)
     fake = FakeRun()
-    monkeypatch.setattr(spark_step.subprocess, "run", fake)
+    monkeypatch.setattr(spark_step.subprocess, "Popen", fake)
     pipe = _spark_pipeline()
     result = run_step(pipe.get("recalcula"), make_ctx(pipe))
     assert result.status == "falha"
@@ -218,7 +235,7 @@ def test_script_outside_root_is_refused_before_running(
     fora = tmp_path_factory.mktemp("fora") / "x.py"
     fora.write_text("print(1)\n", encoding="utf-8")
     fake = FakeRun()
-    monkeypatch.setattr(spark_step.subprocess, "run", fake)
+    monkeypatch.setattr(spark_step.subprocess, "Popen", fake)
     pipe = _spark_pipeline()
     ctx = make_ctx(pipe)
     for script in (Path("../fora/x.py"), fora):  # o modelo direto não passa por load_pipeline
@@ -233,7 +250,7 @@ def test_missing_script_is_actionable(
     project: Path, make_ctx: MakeCtx, fake_submit: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     fake = FakeRun()
-    monkeypatch.setattr(spark_step.subprocess, "run", fake)
+    monkeypatch.setattr(spark_step.subprocess, "Popen", fake)
     pipe = _spark_pipeline()
     result = run_step(pipe.get("recalcula"), make_ctx(pipe))
     assert result.status == "falha"
@@ -246,7 +263,7 @@ def test_gcp_mode_delegates_to_the_dag_and_runs_nothing(
 ) -> None:
     _script(project)
     fake = FakeRun()
-    monkeypatch.setattr(spark_step.subprocess, "run", fake)
+    monkeypatch.setattr(spark_step.subprocess, "Popen", fake)
     pipe = _spark_pipeline()
     local = make_ctx(pipe)
     ctx = dataclasses.replace(local, env=local.env.model_copy(update={"modo": "gcp"}))
@@ -260,3 +277,75 @@ def test_gcp_mode_delegates_to_the_dag_and_runs_nothing(
         "(veja `dataeng plan`); este processo não executa o script spark/recalcula.py"
     )
     assert _status(ctx) == [("recalcula", "nao_executada")]
+
+
+def test_dependents_of_a_delegated_step_say_it_was_not_executed_in_this_mode(
+    project: Path, make_ctx: MakeCtx, fake_submit: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from dataeng_core.steps import run_pipeline
+
+    _script(project)
+    monkeypatch.setattr(spark_step.subprocess, "Popen", FakeRun())
+    pipe = pipeline(
+        {"id": "recalcula", "tipo": "spark", "script": "spark/recalcula.py"},
+        {"id": "depois", "tipo": "python", "funcao": "custom.x:f", "depende_de": ["recalcula"]},
+    )
+    local = make_ctx(pipe)
+    ctx = dataclasses.replace(local, env=local.env.model_copy(update={"modo": "gcp"}))
+    results = run_pipeline(pipe, ctx)
+    assert [(r.step_id, r.status) for r in results] == [("recalcula", "nao_executada"), ("depois", "nao_executada")]
+    assert results[1].detail == (
+        "não executada porque a etapa 'recalcula' não foi executada neste modo (delegada à DAG)"
+    )
+
+
+@pytest.mark.parametrize("value", ["a&b", "x|y", "<z>", "c^d", "50%"])
+def test_windows_refuses_cmd_metacharacters_in_arguments(
+    project: Path, make_ctx: MakeCtx, fake_submit: None, monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    _script(project)
+    fake = FakeRun()
+    monkeypatch.setattr(spark_step.subprocess, "Popen", fake)
+    monkeypatch.setattr(spark_step.sys, "platform", "win32")
+    pipe = _spark_pipeline()
+    local = make_ctx(pipe)
+    ctx = dataclasses.replace(local, params={**local.params, "filtro": value})
+    result = run_step(pipe.get("recalcula"), ctx)
+    assert result.status == "falha"
+    assert "cmd.exe" in result.detail and "filtro" in result.detail and value not in result.detail
+    assert fake.calls == []
+    # fora do Windows não há cmd.exe: o mesmo valor é aceito (lista de argumentos, sem shell)
+    monkeypatch.setattr(spark_step.sys, "platform", "linux")
+    assert run_step(pipe.get("recalcula"), ctx).status == "ok"
+    assert fake.calls[0][1].get("start_new_session") is True
+
+
+def test_windows_timeout_kills_the_whole_process_tree(
+    project: Path, make_ctx: MakeCtx, fake_submit: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _script(project)
+    fake = FakeRun(hangs=True)
+    killed: list[list[str]] = []
+    monkeypatch.setattr(spark_step.subprocess, "Popen", fake)
+    monkeypatch.setattr(spark_step.subprocess, "run", lambda cmd, **kw: killed.append(list(cmd)))
+    monkeypatch.setattr(spark_step.sys, "platform", "win32")
+    pipe = _spark_pipeline(dataproc={"timeout_local": 7})
+    result = run_step(pipe.get("recalcula"), make_ctx(pipe))
+    assert result.status == "falha" and "tempo limite de 7 s" in result.detail
+    assert killed == [["taskkill", "/T", "/F", "/PID", "4242"]]
+    assert fake.calls[0][1]["creationflags"] == getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x200)
+
+
+def test_posix_timeout_kills_the_process_group(
+    project: Path, make_ctx: MakeCtx, fake_submit: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _script(project)
+    fake = FakeRun(hangs=True)
+    groups: list[tuple[int, int]] = []
+    monkeypatch.setattr(spark_step.subprocess, "Popen", fake)
+    monkeypatch.setattr(spark_step.os, "killpg", lambda pid, sig: groups.append((pid, sig)), raising=False)
+    monkeypatch.setattr(spark_step.sys, "platform", "linux")
+    pipe = _spark_pipeline(dataproc={"timeout_local": 7})
+    result = run_step(pipe.get("recalcula"), make_ctx(pipe))
+    assert result.status == "falha"
+    assert groups == [(4242, 9)] and fake.killed
