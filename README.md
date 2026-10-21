@@ -55,7 +55,7 @@ Cada pasta deste repositório é um projeto independente, com o próprio README,
 | | Projeto | O que faz | Tecnologias | Status |
 |:-:|---|---|---|:-:|
 | ☁️ | **[GCP File Uploader](gcp-file-uploader/)** | App desktop que permite a qualquer pessoa enviar arquivos para um bucket do Google Cloud Storage com poucos cliques, sem console nem linha de comando. | `Python` `CustomTkinter` `Google Cloud Storage` | ✅ Pronto |
-| ⛽ | **[Pipeline de Preços de Combustíveis no GCP](combustiveis-pipeline-gcp/)** | ELT dos dados abertos da ANP até o BigQuery, implementado em **Python (Cloud Run)** e em **PySpark (Dataproc)**, com comparativo de custo e tempo. | `Python` `PySpark` `Cloud Run` `Dataproc` `BigQuery` | 🔨 Em andamento |
+| ⛽ | **[Pipeline de Preços de Combustíveis no GCP](combustiveis-pipeline-gcp/)** | ELT dos dados abertos da ANP até o BigQuery, implementado em **Python (Cloud Run)** e em **PySpark (Dataproc)**, com comparativo de custo e tempo. Gerado a partir do [`template-pipeline`](template-pipeline/) (tipo `hibrido`) e usa a `dataeng-core`; GCP, Spark e dados reais da ANP ainda não validados. | `Python` `PySpark` `Cloud Run` `Dataproc` `BigQuery` | 🔨 Em andamento |
 | 🧱 | **[Modelagem Dimensional com dbt](combustiveis-dbt/)** | Esquema estrela, testes automáticos e documentação com linhagem sobre os dados de combustíveis. | `dbt` `BigQuery` `SQL` | 🚧 Planejado |
 | 🎼 | **[Orquestração com Airflow e Composer](combustiveis-orquestracao/)** | O mesmo DAG rodando no Airflow local e no Cloud Composer, com retries, backfill e alertas. | `Airflow` `Cloud Composer` `Docker` | 🚧 Planejado |
 | 📊 | **[Painel de Combustíveis no Power BI](combustiveis-bi-powerbi/)** | Painel sobre o modelo dimensional, que responde onde o combustível está mais caro e quando compensa o etanol. | `Power BI` `DAX` `BigQuery` | 🚧 Planejado |
@@ -70,7 +70,7 @@ Cada pasta deste repositório é um projeto independente, com o próprio README,
 
 > ⛽ Os projetos `combustiveis-*` formam **uma única história**: do arquivo cru da ANP ao painel de decisão e, depois, a uma IA que responde perguntas sobre os dados com segurança.
 >
-> 🧩 `lib-dataeng-core` e `template-pipeline` são a **plataforma de templates**: a biblioteca guarda o que se repete entre pipelines e o template gera um repositório novo a partir dela. Foram implementados e testados com a versão local (DuckDB e Pub/Sub em memória); a execução no GCP, no Airflow e no Spark **ainda não foi validada**, e o CI (GitHub Actions) e o `docker build` **nunca foram executados**. O desenho está na [especificação](docs/superpowers/specs/2026-10-19-templates-e-bibliotecas-de-engenharia-design.md).
+> 🧩 `lib-dataeng-core` e `template-pipeline` são a **plataforma de templates**: a biblioteca guarda o que se repete entre pipelines e o template gera um repositório novo a partir dela. O primeiro uso real é o [`combustiveis-pipeline-gcp`](combustiveis-pipeline-gcp/): foi **gerado pelo `template-pipeline`** (tipo `hibrido`) e **usa a `dataeng-core`**. O template gera o repositório, a biblioteca executa (validar, planejar e rodar) e a DAG é montada a partir do mesmo `pipeline.yaml`; hoje isso roda local, com amostra sintética. Foram implementados e testados com a versão local (DuckDB e Pub/Sub em memória); a execução no GCP, no Airflow e no Spark **ainda não foi validada**, e o CI (GitHub Actions) e o `docker build` **nunca foram executados**. O desenho está na [especificação](docs/superpowers/specs/2026-10-19-templates-e-bibliotecas-de-engenharia-design.md).
 
 ---
 
@@ -125,7 +125,7 @@ python gcp-file-uploader/src/main.py
 ```text
 tanc-portifolio/
 ├── 📁 gcp-file-uploader/            ☁️  Upload de arquivos para o Google Cloud Storage
-├── 📁 combustiveis-pipeline-gcp/    ⛽  ELT da ANP até o BigQuery (Python e PySpark)
+├── 📁 combustiveis-pipeline-gcp/    ⛽  ELT da ANP até o BigQuery (Python e PySpark); gerado pelo template-pipeline, usa lib-dataeng-core
 ├── 📁 combustiveis-dbt/             🧱  Modelagem dimensional com dbt
 ├── 📁 combustiveis-orquestracao/    🎼  Airflow local e Cloud Composer
 ├── 📁 combustiveis-bi-powerbi/      📊  Painel no Power BI

@@ -8,13 +8,13 @@ troque o status da caixa correspondente: "pronto", "andamento", "planejado" ou "
 Para gerar o PNG usado no README (Edge, em Git Bash, a partir da raiz do repositório):
 
     "/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe" --headless --disable-gpu \
-      --hide-scrollbars --force-device-scale-factor=2 --window-size=1800,1300 \
+      --hide-scrollbars --force-device-scale-factor=2 --window-size=1800,1340 \
       --screenshot="$(pwd -W)/docs/arquitetura.png" "file:///$(pwd -W)/docs/arquitetura.svg"
 """
 import sys
 from xml.sax.saxutils import escape
 
-W, H = 1800, 1300
+W, H = 1800, 1340
 FONT = "'Segoe UI', 'Helvetica Neue', Arial, sans-serif"
 MONO = "'Cascadia Mono', Consolas, 'Courier New', monospace"
 INK, MUTED = "#1F2A37", "#5B6775"
@@ -177,17 +177,22 @@ text(1668, PT - 20, "lê os marts", size=13.5, fill=MUTED, anchor="start", style
 
 # ---------- plataforma de templates ----------
 TY = 1075  # topo da faixa da plataforma
-add(f'<rect x="40" y="{TY}" width="1720" height="110" rx="14" fill="#EEF6F0" stroke="#5F9A6E" stroke-width="2"/>')
+add(f'<rect x="40" y="{TY}" width="1720" height="140" rx="14" fill="#EEF6F0" stroke="#5F9A6E" stroke-width="2"/>')
 text(60, TY + 26, "PLATAFORMA DE TEMPLATES: BASE REUTILIZÁVEL PARA NOVOS PIPELINES", size=14, weight="700", fill="#3F7450", anchor="start")
-box(60, TY + 38, 560, 64, "andamento", "Template de pipeline (Cookiecutter)", title_size=15, project="template-pipeline")
-box(700, TY + 38, 560, 64, "andamento", "Biblioteca dataeng-core", title_size=15, project="lib-dataeng-core")
-arrow([(620, TY + 70), (700, TY + 70)])
-text(660, TY + 62, "usa", size=13, fill=MUTED, style="italic")
-text(1500, TY + 62, "gera repositórios de ingestão, relatório ou híbridos;", size=14, fill="#3F7450", style="italic")
-text(1500, TY + 84, "consumidor previsto: combustiveis-pipeline-gcp", size=14, fill="#3F7450", style="italic")
+text(1740, TY + 26, "o template gera o repositório; a biblioteca valida, planeja e roda; a DAG vem do mesmo pipeline.yaml",
+     size=13.5, fill="#3F7450", anchor="end", style="italic")
+box(60, TY + 38, 420, 64, "andamento", "Template de pipeline (Cookiecutter)", title_size=15, project="template-pipeline")
+box(690, TY + 38, 420, 64, "andamento", "Projeto gerado (tipo híbrido)", title_size=15, project=PIPE)
+box(1320, TY + 38, 420, 64, "andamento", "Biblioteca dataeng-core", title_size=15, project="lib-dataeng-core")
+arrow([(480, TY + 70), (690, TY + 70)])
+text(585, TY + 62, "gera", size=13, fill=MUTED, style="italic")
+arrow([(1320, TY + 70), (1110, TY + 70)])
+text(1215, TY + 62, "usa", size=13, fill=MUTED, style="italic")
+arrow([(270, TY + 102), (270, TY + 126), (1530, TY + 126), (1530, TY + 102)], dashed=True, color=MUTED, width=2)
+text(900, TY + 120, "o template depende da biblioteca (referência por versão)", size=13, fill=MUTED, style="italic")
 
 # ---------- legenda ----------
-LY = 1225
+LY = 1265
 x = 40
 for status, label in (("pronto", "Pronto"), ("andamento", "Em andamento ou protótipo"), ("planejado", "Planejado"), ("externo", "Fonte ou serviço externo")):
     fill, stroke, dash, _ = STATUS[status]
