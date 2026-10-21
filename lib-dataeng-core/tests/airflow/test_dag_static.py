@@ -20,7 +20,7 @@ from dataeng_core.airflow.dag import (
     dataproc_batch,
     dataproc_batch_id,
 )
-from dataeng_core.airflow.planner import TaskSpec
+from dataeng_core.airflow.planner import DATAPROC_INGEST_ENTRYPOINT, TaskSpec
 from dataeng_core.base.errors import ConfigError
 from dataeng_core.base.params import Environment
 
@@ -203,7 +203,9 @@ class _FakeDag:
         _FakeDag.current = None
 
 
-def _install_fake_airflow(monkeypatch: pytest.MonkeyPatch) -> tuple[list[_FakeOp], list[_FakeOp]]:
+def _install_fake_airflow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[list[_FakeOp], list[_FakeOp], list[_FakeOp]]:
     import types
 
     def module(name: str, **attrs: object) -> None:
@@ -213,6 +215,7 @@ def _install_fake_airflow(monkeypatch: pytest.MonkeyPatch) -> tuple[list[_FakeOp
 
     cloud_run: list[_FakeOp] = []
     dataproc: list[_FakeOp] = []
+    bigquery: list[_FakeOp] = []
 
     def recording(target: list[_FakeOp]) -> type[_FakeOp]:
         class Recorder(_FakeOp):
@@ -228,10 +231,11 @@ def _install_fake_airflow(monkeypatch: pytest.MonkeyPatch) -> tuple[list[_FakeOp
     module("airflow.providers.google")
     module("airflow.providers.google.cloud")
     module("airflow.providers.google.cloud.operators")
+    module("airflow.providers.google.cloud.operators.bigquery", BigQueryInsertJobOperator=recording(bigquery))
     module("airflow.providers.google.cloud.operators.cloud_run", CloudRunExecuteJobOperator=recording(cloud_run))
     module("airflow.providers.google.cloud.operators.dataproc", DataprocCreateBatchOperator=recording(dataproc))
     monkeypatch.setitem(sys.modules, "airflow.sdk", None)  # força o caminho do Airflow 2.x
-    return cloud_run, dataproc
+    return cloud_run, dataproc, bigquery
 
 
 def _gcp_project(tmp_path: Path, *, dataproc_step: str | None = None) -> Path:
@@ -250,7 +254,7 @@ def _gcp_project(tmp_path: Path, *, dataproc_step: str | None = None) -> Path:
 
 def test_build_dag_wiring_with_fake_airflow(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # Não prova o Airflow real (só o CI em Linux): prova que build_dag usa os operadores e a ordem corretos.
-    created, _ = _install_fake_airflow(monkeypatch)
+    created, _, _ = _install_fake_airflow(monkeypatch)
     config = _gcp_project(tmp_path)
     seen: list[object] = []
 
@@ -271,7 +275,7 @@ def test_build_dag_wiring_with_fake_airflow(tmp_path: Path, monkeypatch: pytest.
 
 
 def test_build_dag_dataproc_branch_with_fake_airflow(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    cloud_run, dataproc = _install_fake_airflow(monkeypatch)
+    cloud_run, dataproc, _ = _install_fake_airflow(monkeypatch)
     config = _gcp_project(tmp_path, dataproc_step="ingere2")
     build_dag(str(config))
     assert [op.task_id for op in cloud_run] == ["ingere"]
@@ -283,3 +287,4 @@ def test_build_dag_dataproc_branch_with_fake_airflow(tmp_path: Path, monkeypatch
     assert isinstance(batch, dict)
     assert batch["pyspark_batch"]["args"][:2] == ["--config", str(config).replace(chr(92), "/")]
     assert batch["runtime_config"] == {"version": "2.2"}
+    assert batch["pyspark_batch"]["main_python_file_uri"] == DATAPROC_INGEST_ENTRYPOINT

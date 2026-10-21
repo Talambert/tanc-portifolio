@@ -23,11 +23,13 @@ def _pipeline(etapas: list[dict[str, Any]], **extra: Any) -> Pipeline:
     )
 
 
-def _command(step_id: str, ambiente: str = "prod", config: str = CONFIG) -> list[str]:
+def _command(
+    step_id: str, ambiente: str = "prod", config: str = CONFIG, module: str = "dataeng_core.jobs.run_step"
+) -> list[str]:
     return [
         "python",
         "-m",
-        "dataeng_core.jobs.run_step",
+        module,
         "--config",
         config,
         "--etapa",
@@ -67,7 +69,8 @@ def test_ingestion_dataproc_maps_to_dataproc_batch() -> None:
     pipeline = _pipeline([{**ingest_step("ingere"), "motor": "dataproc"}])
     (task,) = plan_tasks(pipeline, config_path=CONFIG)
     assert task.kind == "dataproc_batch"
-    assert task.command == _command("ingere")
+    # ingestão no Dataproc roda o job com a transformação em Spark (Tarefa 22)
+    assert task.command == _command("ingere", module="dataeng_core.jobs.ingest_spark")
     assert task.resources == {}
 
 
@@ -138,16 +141,6 @@ def test_step_ids_are_valid_airflow_task_ids() -> None:
     for invalid in ("com espaco", "a.b", "ação", "a/b"):
         with pytest.raises(ValueError):
             _pipeline([ingest_step(invalid)])
-
-
-def test_unsupported_step_type_is_an_actionable_error() -> None:
-    pipeline = _pipeline(
-        [ingest_step("ingere"), {"id": "agrega", "tipo": "sql", "sql": ["sql/marca.sql"]}],
-    )
-    with pytest.raises(ConfigError) as exc:
-        plan_tasks(pipeline, config_path=CONFIG)
-    message = str(exc.value)
-    assert "tipo de etapa 'sql'" in message and "'agrega'" in message and "ainda não é planejado" in message
 
 
 _BLOCKER = textwrap.dedent(

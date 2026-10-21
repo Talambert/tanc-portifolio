@@ -12,16 +12,22 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from dataeng_core.airflow.planner import TaskSpec, plan_tasks
+from dataeng_core.airflow.planner import (
+    DATAPROC_INGEST_ENTRYPOINT,
+    DATAPROC_RUN_STEP_ENTRYPOINT,
+    INGEST_SPARK_MODULE,
+    TaskSpec,
+    plan_tasks,
+    task_args,
+)
 from dataeng_core.base.errors import ConfigError
 from dataeng_core.base.params import Environment
 from dataeng_core.jobs.run_step import load_project
 
 # Argumentos que o job do Cloud Run recebe: o ENTRYPOINT da imagem é `python -m dataeng_core.jobs.run_step`
-# e a execução só pode sobrescrever `args` (por isso se descartam os 3 primeiros itens do comando planejado).
-_ENTRYPOINT_ARGS = 3
-# Ponto de entrada do lote do Dataproc: a imagem/arquivo real é definido pela Tarefa 21 (executor Spark).
-DEFAULT_DATAPROC_MAIN = "local:///opt/dataeng/run_step_entrypoint.py"
+# e a execução só pode sobrescrever `args` (por isso `task_args` descarta o ponto de entrada do comando planejado).
+# Ponto de entrada do lote do Dataproc para `run_step` (suposição de infraestrutura; veja o planejador).
+DEFAULT_DATAPROC_MAIN = DATAPROC_RUN_STEP_ENTRYPOINT
 DEFAULT_DATAPROC_RUNTIME = "2.2"
 
 
@@ -46,7 +52,7 @@ def cloud_run_job_name(pipeline_name: str) -> str:
 
 def cloud_run_overrides(spec: TaskSpec) -> dict[str, Any]:
     """`overrides` da execução do job: argumentos da etapa e, se houver, o timeout (cpu/memória são do job)."""
-    overrides: dict[str, Any] = {"container_overrides": [{"args": spec.command[_ENTRYPOINT_ARGS:]}]}
+    overrides: dict[str, Any] = {"container_overrides": [{"args": task_args(spec)}]}
     if "timeout" in spec.resources:
         try:
             overrides["timeout"] = f"{int(spec.resources['timeout'])}s"
@@ -74,13 +80,29 @@ def dataproc_batch_id(pipeline_name: str, task_id: str) -> str:
     return f"{base}-{digest}-{{{{ ts_nodash | lower }}}}-{{{{ ti.try_number }}}}"
 
 
+def dataproc_main_file(spec: TaskSpec) -> str:
+    """Arquivo principal do lote: o script da etapa `spark` (já resolvido pelo planejador) ou o ponto de entrada.
+
+    Comando `python -m <módulo>`: `ingest_spark` usa `ingest_entrypoint_uri` e `run_step` usa
+    `run_step_entrypoint_uri` (ambos em `execucao_padrao.dataproc`; senão, as constantes do planejador).
+    """
+    if len(spec.command) > 2 and spec.command[1] == "-m":
+        if spec.command[2] == INGEST_SPARK_MODULE:
+            return str(spec.resources.get("ingest_entrypoint_uri", DATAPROC_INGEST_ENTRYPOINT))
+        return str(spec.resources.get("run_step_entrypoint_uri", DEFAULT_DATAPROC_MAIN))
+    uri = spec.resources.get("main_python_file_uri")
+    if not isinstance(uri, str) or not uri:
+        raise ConfigError(
+            f"a tarefa '{spec.task_id}' não informa o script do lote (`main_python_file_uri`)",
+            operation="dataproc_batch",
+        )
+    return uri
+
+
 def dataproc_batch(spec: TaskSpec, env: Environment) -> dict[str, Any]:
     """Corpo do lote do Dataproc Serverless (`runtime` e `executores` vêm de `execucao_padrao.dataproc`)."""
     batch: dict[str, Any] = {
-        "pyspark_batch": {
-            "main_python_file_uri": spec.resources.get("main_python_file_uri", DEFAULT_DATAPROC_MAIN),
-            "args": spec.command[_ENTRYPOINT_ARGS:],
-        },
+        "pyspark_batch": {"main_python_file_uri": dataproc_main_file(spec), "args": task_args(spec)},
         "runtime_config": {"version": str(spec.resources.get("runtime", DEFAULT_DATAPROC_RUNTIME))},
     }
     if "executores" in spec.resources:
@@ -88,6 +110,16 @@ def dataproc_batch(spec: TaskSpec, env: Environment) -> dict[str, Any]:
     if env.service_account:
         batch["environment_config"] = {"execution_config": {"service_account": env.service_account}}
     return batch
+
+
+def bigquery_configuration(spec: TaskSpec) -> dict[str, Any]:
+    """`configuration` do `BigQueryInsertJobOperator`: as instruções da tarefa como um único script de consulta.
+
+    As instruções rodam em ordem e o script para na primeira que falhar (como a etapa `sql` local, sem
+    atomicidade entre instruções). O texto termina em `;` e quebra de linha: o Airflow trata como ARQUIVO um valor
+    de campo que termina em `.sql`, e o SQL do usuário poderia terminar assim.
+    """
+    return {"query": {"query": ";\n".join(spec.command) + ";\n", "useLegacySql": False}}
 
 
 def build_dag(
@@ -105,9 +137,15 @@ def build_dag(
     arquivo da DAG). `job_config_path`: caminho do mesmo arquivo DENTRO da imagem do job (relativo à WORKDIR ou
     absoluto Linux); vai em `--config`. Sem ele, usa-se `config_path`.
 
-    De `execucao_padrao` a montagem consome só `cloud_run.timeout` (override da execução) e
-    `dataproc.runtime`, `dataproc.executores` e `dataproc.main_python_file_uri`; as demais chaves (cpu, memoria...)
-    são ignoradas aqui: pertencem à definição do job. O Cloud Run Job deve se chamar `cloud_run_job_name(nome)`.
+    Tarefas por tipo (veja `plan_tasks`): `sql`/`view` viram `BigQueryInsertJobOperator` (SQL renderizado pelo
+    Airflow; parâmetros do yaml e do ambiente aparecem em texto claro na UI); `ingestao`, `python` e `qualidade`
+    viram `CloudRunExecuteJobOperator` ou, com `motor: dataproc`, `DataprocCreateBatchOperator`; `spark` vira lote do
+    Dataproc com o script da etapa.
+
+    De `execucao_padrao` a montagem consome só `cloud_run.timeout` (override da execução) e, em `dataproc`,
+    `runtime`, `executores`, `run_step_entrypoint_uri`, `ingest_entrypoint_uri` e `script_base_uri`
+    (`main_python_file_uri` por etapa); as demais chaves (cpu, memoria...) são ignoradas aqui: pertencem à definição
+    do job. O Cloud Run Job deve se chamar `cloud_run_job_name(nome)`.
 
     `dag_kwargs` vai para `DAG(...)` e prevalece sobre os padrões (dag_id, schedule, start_date, catchup).
     """
@@ -116,6 +154,7 @@ def build_dag(
             from airflow.sdk import DAG  # Airflow 3
         except ImportError:
             from airflow import DAG  # Airflow 2.x
+        from airflow.providers.google.cloud.operators.bigquery import BigQueryInsertJobOperator
         from airflow.providers.google.cloud.operators.cloud_run import CloudRunExecuteJobOperator
         from airflow.providers.google.cloud.operators.dataproc import DataprocCreateBatchOperator
     except ImportError as exc:
@@ -138,7 +177,14 @@ def build_dag(
     with DAG(**options) as dag:
         tasks: dict[str, Any] = {}
         for spec in specs:
-            if spec.kind == "cloud_run_job":
+            if spec.kind == "bigquery_job":
+                tasks[spec.task_id] = BigQueryInsertJobOperator(
+                    task_id=spec.task_id,
+                    configuration=bigquery_configuration(spec),
+                    project_id=env.projeto_gcp,
+                    location=env.regiao,
+                )
+            elif spec.kind == "cloud_run_job":
                 tasks[spec.task_id] = CloudRunExecuteJobOperator(
                     task_id=spec.task_id,
                     project_id=env.projeto_gcp,
