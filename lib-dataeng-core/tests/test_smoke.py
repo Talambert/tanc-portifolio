@@ -6,8 +6,18 @@ import pytest
 import dataeng_core
 
 LAYERS = [
-    "base", "storage", "warehouse", "pubsub", "sources", "transform",
-    "quality", "sql", "steps", "jobs", "airflow", "cli",
+    "base",
+    "storage",
+    "warehouse",
+    "pubsub",
+    "sources",
+    "transform",
+    "quality",
+    "sql",
+    "steps",
+    "jobs",
+    "airflow",
+    "cli",
 ]
 
 
