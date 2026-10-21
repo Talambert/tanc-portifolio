@@ -2,7 +2,7 @@
 
 Sem rede e sem dados reais: a amostra é escrita aqui, com CNPJs fictícios (`99999900...`). A rodada local copia o
 projeto para uma pasta temporária (o DuckDB e o bronze local ficam lá, nunca no repositório).
-Requer `dataeng-core` instalado: `pip install -e "lib-dataeng-core[local]" pytest` a partir da raiz do repositório.
+Requer `dataeng-core` instalado: `pip install -e "plataforma-engenharia/lib-dataeng-core[local]" pytest` a partir da raiz do repositório.
 """
 
 from __future__ import annotations

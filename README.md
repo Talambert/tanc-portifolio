@@ -50,27 +50,27 @@ Trabalho com **dados e BI há muitos anos**, e foi nesse tempo que aprendi uma c
 
 ## 🚀 Projetos
 
-Cada pasta deste repositório é um projeto independente, com o próprio README, e cada um resolve um problema real. Clique para explorar.
+Cada projeto deste repositório é independente, com o próprio README, e cada um resolve um problema real. Clique para explorar.
 
 | | Projeto | O que faz | Tecnologias | Status |
 |:-:|---|---|---|:-:|
-| ☁️ | **[GCP File Uploader](gcp-file-uploader/)** | App desktop que permite a qualquer pessoa enviar arquivos para um bucket do Google Cloud Storage com poucos cliques, sem console nem linha de comando. | `Python` `CustomTkinter` `Google Cloud Storage` | ✅ Pronto |
-| ⛽ | **[Pipeline de Preços de Combustíveis no GCP](combustiveis-pipeline-gcp/)** | ELT dos dados abertos da ANP até o BigQuery, implementado em **Python (Cloud Run)** e em **PySpark (Dataproc)**, com comparativo de custo e tempo. Gerado a partir do [`template-pipeline`](template-pipeline/) (tipo `hibrido`) e usa a `dataeng-core`; GCP, Spark e dados reais da ANP ainda não validados. | `Python` `PySpark` `Cloud Run` `Dataproc` `BigQuery` | 🔨 Em andamento |
-| 🧱 | **[Modelagem Dimensional com dbt](combustiveis-dbt/)** | Esquema estrela, testes automáticos e documentação com linhagem sobre os dados de combustíveis. | `dbt` `BigQuery` `SQL` | 🚧 Planejado |
-| 🎼 | **[Orquestração com Airflow e Composer](combustiveis-orquestracao/)** | O mesmo DAG rodando no Airflow local e no Cloud Composer, com retries, backfill e alertas. | `Airflow` `Cloud Composer` `Docker` | 🚧 Planejado |
-| 📊 | **[Painel de Combustíveis no Power BI](combustiveis-bi-powerbi/)** | Painel sobre o modelo dimensional, que responde onde o combustível está mais caro e quando compensa o etanol. | `Power BI` `DAX` `BigQuery` | 🚧 Planejado |
-| 🔌 | **[Servidor MCP para o BigQuery](combustiveis-mcp-bigquery/)** | Camada segura entre IA e dados: somente leitura, limite de custo, autenticação e auditoria de cada consulta. | `MCP` `Python` `BigQuery` `Cloud Run` | 🚧 Planejado |
-| 🤖 | **[Agente de Dados com Gemini](combustiveis-agente-dados/)** | Pergunte em português sobre os preços e receba tabela, SQL e custo, com acurácia medida em um conjunto de avaliação. | `Vertex AI` `Gemini` `ADK` `Python` | 🚧 Planejado |
-| 🛡️ | **[Agente de Observabilidade de Pipelines](combustiveis-agente-observabilidade/)** | Agente que investiga falhas do Airflow e do dbt, explica a causa provável e propõe a correção em um PR em rascunho para revisão humana. | `Vertex AI` `Gemini` `Airflow` `dbt` | 🚧 Planejado |
-| 🛡️ | **[Portal de Governança de Dados](portal-governanca-dados/)** | Portal web e biblioteca **genéricos** para qualquer dataset do BigQuery, com três módulos: sugere metadados, propõe regras de data quality e responde perguntas sobre os dados com citação da fonte (RAG). Usa Dataplex e Gemini, com revisão humana. Roda no Cloud Run. | `Dataplex` `BigQuery` `Vertex AI` `RAG` `Streamlit` `Cloud Run` | 🔨 Protótipo (simulação) |
-| 🧾 | **[Extração de Documentos com IA](extracao-documentos-ia/)** | Extrai dados estruturados de PDFs e planilhas sem padrão, valida cada campo e envia o duvidoso para quarentena. | `Vertex AI` `Gemini` `Pydantic` `BigQuery` | 🚧 Planejado |
-| 🧩 | **[Biblioteca de Engenharia de Dados (`dataeng-core`)](lib-dataeng-core/)** | Biblioteca Python versionada com o que é comum a qualquer pipeline: ingestão de arquivo, API e Pub/Sub, transformação declarativa (pandas e PySpark), qualidade, SQL parametrizado, montagem de DAG do Airflow e a CLI `dataeng`. | `Python` `pandas` `PySpark` `DuckDB` `Airflow` | 🔨 Implementada e testada local; GCP não validado |
-| 🏭 | **[Template de Pipeline (`template-pipeline`)](template-pipeline/)** | Gerador Cookiecutter de repositórios de pipeline (`ingestao`, `relatorio` ou `hibrido`): configuração em YAML, SQL, DAG e testes prontos, com [guia de novo pipeline](template-pipeline/docs/guia-novo-pipeline.md). Roda local de ponta a ponta, sem nuvem. | `Cookiecutter` `Python` `BigQuery` `Cloud Run` `Dataproc` | 🔨 Implementado e testado local; GCP não validado |
+| ☁️ | **[GCP File Uploader](pocs/gcp-file-uploader/)** | App desktop que permite a qualquer pessoa enviar arquivos para um bucket do Google Cloud Storage com poucos cliques, sem console nem linha de comando. | `Python` `CustomTkinter` `Google Cloud Storage` | ✅ Pronto |
+| ⛽ | **[Pipeline de Preços de Combustíveis no GCP](serie-combustiveis/combustiveis-pipeline-gcp/)** | ELT dos dados abertos da ANP até o BigQuery, implementado em **Python (Cloud Run)** e em **PySpark (Dataproc)**, com comparativo de custo e tempo. Gerado a partir do [`template-pipeline`](plataforma-engenharia/template-pipeline/) (tipo `hibrido`) e usa a `dataeng-core`; GCP, Spark e dados reais da ANP ainda não validados. | `Python` `PySpark` `Cloud Run` `Dataproc` `BigQuery` | 🔨 Em andamento |
+| 🧱 | **[Modelagem Dimensional com dbt](serie-combustiveis/combustiveis-dbt/)** | Esquema estrela, testes automáticos e documentação com linhagem sobre os dados de combustíveis. | `dbt` `BigQuery` `SQL` | 🚧 Planejado |
+| 🎼 | **[Orquestração com Airflow e Composer](serie-combustiveis/combustiveis-orquestracao/)** | O mesmo DAG rodando no Airflow local e no Cloud Composer, com retries, backfill e alertas. | `Airflow` `Cloud Composer` `Docker` | 🚧 Planejado |
+| 📊 | **[Painel de Combustíveis no Power BI](serie-combustiveis/combustiveis-bi-powerbi/)** | Painel sobre o modelo dimensional, que responde onde o combustível está mais caro e quando compensa o etanol. | `Power BI` `DAX` `BigQuery` | 🚧 Planejado |
+| 🔌 | **[Servidor MCP para o BigQuery](ia-e-agentes/combustiveis-mcp-bigquery/)** | Camada segura entre IA e dados: somente leitura, limite de custo, autenticação e auditoria de cada consulta. | `MCP` `Python` `BigQuery` `Cloud Run` | 🚧 Planejado |
+| 🤖 | **[Agente de Dados com Gemini](ia-e-agentes/combustiveis-agente-dados/)** | Pergunte em português sobre os preços e receba tabela, SQL e custo, com acurácia medida em um conjunto de avaliação. | `Vertex AI` `Gemini` `ADK` `Python` | 🚧 Planejado |
+| 🛡️ | **[Agente de Observabilidade de Pipelines](ia-e-agentes/combustiveis-agente-observabilidade/)** | Agente que investiga falhas do Airflow e do dbt, explica a causa provável e propõe a correção em um PR em rascunho para revisão humana. | `Vertex AI` `Gemini` `Airflow` `dbt` | 🚧 Planejado |
+| 🛡️ | **[Portal de Governança de Dados](governanca/portal-governanca-dados/)** | Portal web e biblioteca **genéricos** para qualquer dataset do BigQuery, com três módulos: sugere metadados, propõe regras de data quality e responde perguntas sobre os dados com citação da fonte (RAG). Usa Dataplex e Gemini, com revisão humana. Roda no Cloud Run. | `Dataplex` `BigQuery` `Vertex AI` `RAG` `Streamlit` `Cloud Run` | 🔨 Protótipo (simulação) |
+| 🧾 | **[Extração de Documentos com IA](ia-e-agentes/extracao-documentos-ia/)** | Extrai dados estruturados de PDFs e planilhas sem padrão, valida cada campo e envia o duvidoso para quarentena. | `Vertex AI` `Gemini` `Pydantic` `BigQuery` | 🚧 Planejado |
+| 🧩 | **[Biblioteca de Engenharia de Dados (`dataeng-core`)](plataforma-engenharia/lib-dataeng-core/)** | Biblioteca Python versionada com o que é comum a qualquer pipeline: ingestão de arquivo, API e Pub/Sub, transformação declarativa (pandas e PySpark), qualidade, SQL parametrizado, montagem de DAG do Airflow e a CLI `dataeng`. | `Python` `pandas` `PySpark` `DuckDB` `Airflow` | 🔨 Implementada e testada local; GCP não validado |
+| 🏭 | **[Template de Pipeline (`template-pipeline`)](plataforma-engenharia/template-pipeline/)** | Gerador Cookiecutter de repositórios de pipeline (`ingestao`, `relatorio` ou `hibrido`): configuração em YAML, SQL, DAG e testes prontos, com [guia de novo pipeline](plataforma-engenharia/template-pipeline/docs/guia-novo-pipeline.md). Roda local de ponta a ponta, sem nuvem. | `Cookiecutter` `Python` `BigQuery` `Cloud Run` `Dataproc` | 🔨 Implementado e testado local; GCP não validado |
 | 🔜 | *Próximo projeto* | *Em breve…* | | 🚧 Planejado |
 
 > ⛽ Os projetos `combustiveis-*` formam **uma única história**: do arquivo cru da ANP ao painel de decisão e, depois, a uma IA que responde perguntas sobre os dados com segurança.
 >
-> 🧩 `lib-dataeng-core` e `template-pipeline` são a **plataforma de templates**: a biblioteca guarda o que se repete entre pipelines e o template gera um repositório novo a partir dela. O primeiro uso real é o [`combustiveis-pipeline-gcp`](combustiveis-pipeline-gcp/): foi **gerado pelo `template-pipeline`** (tipo `hibrido`) e **usa a `dataeng-core`**. O template gera o repositório, a biblioteca executa (validar, planejar e rodar) e a DAG é montada a partir do mesmo `pipeline.yaml`; hoje isso roda local, com amostra sintética. Foram implementados e testados com a versão local (DuckDB e Pub/Sub em memória); a execução no GCP, no Airflow e no Spark **ainda não foi validada**, e o CI (GitHub Actions) e o `docker build` **nunca foram executados**. O desenho está na [especificação](docs/superpowers/specs/2026-10-19-templates-e-bibliotecas-de-engenharia-design.md).
+> 🧩 `lib-dataeng-core` e `template-pipeline` são a **plataforma de templates**: a biblioteca guarda o que se repete entre pipelines e o template gera um repositório novo a partir dela. O primeiro uso real é o [`combustiveis-pipeline-gcp`](serie-combustiveis/combustiveis-pipeline-gcp/): foi **gerado pelo `template-pipeline`** (tipo `hibrido`) e **usa a `dataeng-core`**. O template gera o repositório, a biblioteca executa (validar, planejar e rodar) e a DAG é montada a partir do mesmo `pipeline.yaml`; hoje isso roda local, com amostra sintética. Foram implementados e testados com a versão local (DuckDB e Pub/Sub em memória); a execução no GCP, no Airflow e no Spark **ainda não foi validada**, e o CI (GitHub Actions) e o `docker build` **nunca foram executados**. O desenho está na [especificação](docs/superpowers/specs/2026-10-19-templates-e-bibliotecas-de-engenharia-design.md).
 
 ### ⚠️ Plataforma de templates: o que ainda não foi validado de verdade
 
@@ -87,7 +87,7 @@ A biblioteca e o template foram testados **localmente** (DuckDB, pasta local, Pu
 | **Dados reais da ANP** | Nunca processados. O cabeçalho do schema de origem do `combustiveis-pipeline-gcp` vem do layout público lembrado, não de um arquivo real. |
 | **Instalação da biblioteca por Git ou Artifact Registry** | Nunca exercitada (a tag `dataeng-core-v0.1.0` ainda não existe). |
 
-Detalhes e limites conhecidos estão no [README da biblioteca](lib-dataeng-core/README.md#limitações-e-o-que-não-foi-validado) e no [do template](template-pipeline/README.md).
+Detalhes e limites conhecidos estão no [README da biblioteca](plataforma-engenharia/lib-dataeng-core/README.md#limitações-e-o-que-não-foi-validado) e no [do template](plataforma-engenharia/template-pipeline/README.md).
 
 ---
 
@@ -101,7 +101,7 @@ Como as peças se encaixam, do arquivo cru ao painel e ao portal de governança.
 
 **Lendo o desenho, da esquerda para a direita:**
 
-1. **Entrada:** os arquivos chegam ao **Cloud Storage (bronze)** por dois caminhos: o *download* dos dados abertos da ANP e o **upload de parceiros** pelo app desktop [gcp-file-uploader](gcp-file-uploader/). Documentos sem padrão (PDF e planilhas) entram por um pipeline próprio de extração com IA, que valida e manda o duvidoso para quarentena.
+1. **Entrada:** os arquivos chegam ao **Cloud Storage (bronze)** por dois caminhos: o *download* dos dados abertos da ANP e o **upload de parceiros** pelo app desktop [gcp-file-uploader](pocs/gcp-file-uploader/). Documentos sem padrão (PDF e planilhas) entram por um pipeline próprio de extração com IA, que valida e manda o duvidoso para quarentena.
 2. **Processamento:** o mesmo contrato de dados é implementado em **Python (Cloud Run Jobs)** e em **PySpark (Dataproc Serverless)**, gerando a camada **silver** no BigQuery, limpa, tipada e com quarentena das linhas malformadas.
 3. **Transformação:** o **dbt** monta o modelo dimensional (fato e dimensões) na camada **gold**, com testes e documentação.
 4. **Consumo:** a gold alimenta o painel no **Power BI** e um **agente de dados (Gemini)** que responde perguntas em português por um servidor MCP somente leitura.
@@ -113,7 +113,7 @@ Por baixo de tudo, **Airflow (local) e Cloud Composer** orquestram as etapas, e 
 
 ## 🔎 Em destaque
 
-### ☁️ [GCP File Uploader](gcp-file-uploader/)
+### ☁️ [GCP File Uploader](pocs/gcp-file-uploader/)
 
 > **Problema:** parceiros e clientes precisam enviar arquivos para o nosso Cloud Storage, mas não deveriam precisar de acesso ao console do GCP nem saber usar um terminal.
 >
@@ -129,11 +129,11 @@ Por baixo de tudo, **Airflow (local) e Cloud Composer** orquestram as etapas, e 
 ```bash
 python -m venv .venv
 source .venv/Scripts/activate
-pip install -r gcp-file-uploader/requirements.txt
-python gcp-file-uploader/src/main.py
+pip install -r pocs/gcp-file-uploader/requirements.txt
+python pocs/gcp-file-uploader/src/main.py
 ```
 
-📖 [Ver documentação completa do projeto →](gcp-file-uploader/README.md)
+📖 [Ver documentação completa do projeto →](pocs/gcp-file-uploader/README.md)
 
 ---
 
@@ -141,22 +141,29 @@ python gcp-file-uploader/src/main.py
 
 ```text
 tanc-portifolio/
-├── 📁 gcp-file-uploader/            ☁️  Upload de arquivos para o Google Cloud Storage
-├── 📁 combustiveis-pipeline-gcp/    ⛽  ELT da ANP até o BigQuery (Python e PySpark); gerado pelo template-pipeline, usa lib-dataeng-core
-├── 📁 combustiveis-dbt/             🧱  Modelagem dimensional com dbt
-├── 📁 combustiveis-orquestracao/    🎼  Airflow local e Cloud Composer
-├── 📁 combustiveis-bi-powerbi/      📊  Painel no Power BI
-├── 📁 combustiveis-mcp-bigquery/    🔌  Servidor MCP seguro para o BigQuery
-├── 📁 combustiveis-agente-dados/    🤖  Agente de IA (Gemini no Vertex AI)
-├── 📁 combustiveis-agente-observabilidade/  🛡️  Agente que diagnostica falhas de pipeline
-├── 📁 portal-governanca-dados/      🛡️  Portal de governança: metadados, data quality e catálogo (RAG)
-├── 📁 extracao-documentos-ia/       🧾  Extração estruturada de documentos
-├── 📁 lib-dataeng-core/             🧩  Biblioteca comum de engenharia de dados (dataeng-core)
-├── 📁 template-pipeline/            🏭  Template Cookiecutter de pipelines (ingestao, relatorio, hibrido)
+├── 📁 plataforma-engenharia/        🧩  Esteira para criar pipelines
+│   ├── 📁 lib-dataeng-core/             Biblioteca comum de engenharia de dados (dataeng-core)
+│   └── 📁 template-pipeline/            Template Cookiecutter de pipelines (ingestao, relatorio, hibrido)
+├── 📁 serie-combustiveis/           ⛽  Pipeline de preços da ANP, ponta a ponta
+│   ├── 📁 combustiveis-pipeline-gcp/    ELT da ANP até o BigQuery (Python e PySpark); gerado pelo template-pipeline, usa lib-dataeng-core
+│   ├── 📁 combustiveis-dbt/             Modelagem dimensional com dbt
+│   ├── 📁 combustiveis-orquestracao/    Airflow local e Cloud Composer
+│   └── 📁 combustiveis-bi-powerbi/      Painel no Power BI
+├── 📁 ia-e-agentes/                 🤖  IA aplicada a dados
+│   ├── 📁 combustiveis-mcp-bigquery/    Servidor MCP seguro para o BigQuery
+│   ├── 📁 combustiveis-agente-dados/    Agente de IA (Gemini no Vertex AI)
+│   ├── 📁 combustiveis-agente-observabilidade/  Agente que diagnostica falhas de pipeline
+│   └── 📁 extracao-documentos-ia/       Extração estruturada de documentos
+├── 📁 governanca/                   🛡️  Governança de dados
+│   └── 📁 portal-governanca-dados/      Portal de governança: metadados, data quality e catálogo (RAG)
+├── 📁 pocs/                         🧪  POCs e utilitários
+│   └── 📁 gcp-file-uploader/            Upload de arquivos para o Google Cloud Storage
 ├── 📁 docs/                         🏗️  Diagrama de arquitetura (PNG, SVG e gerador)
 ├── 📁 planos/                       🗺️  Roadmap e planos de desenvolvimento
 └── 📄 README.md                     ← você está aqui
 ```
+
+Os projetos ficam em cinco grupos: **plataforma de engenharia** (a esteira para criar pipelines), **série de combustíveis** (o pipeline da ANP ponta a ponta), **IA e agentes**, **governança** e **POCs e utilitários**. Cada grupo tem um `README.md` curto na própria pasta.
 
 Cada projeto é autocontido: tem seu próprio `README.md`, suas dependências e instruções para rodar.
 
@@ -177,9 +184,9 @@ Se você chegou até aqui, provavelmente temos assuntos em comum: dados, nuvem e
 
 <!--
 COMO ADICIONAR UM NOVO PROJETO
-1. Crie a pasta do projeto na raiz, com README.md próprio.
+1. Crie a pasta do projeto dentro do grupo certo (ou crie um grupo novo, com README.md), com README.md próprio.
 2. Na tabela "Projetos", troque a linha "Próximo projeto" por:
-   | 📊 | **[Nome](pasta/)** | O que faz, em uma frase. | `Tech1` `Tech2` | ✅ Pronto |
+   | 📊 | **[Nome](grupo/pasta/)** | O que faz, em uma frase. | `Tech1` `Tech2` | ✅ Pronto |
    e mantenha uma nova linha "Próximo projeto" no fim.
 3. Opcional: crie uma seção em "Em destaque" (problema, solução, 3-4 bullets).
 4. Atualize o bloco "Como este repositório está organizado".

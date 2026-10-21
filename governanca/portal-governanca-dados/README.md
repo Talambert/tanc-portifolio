@@ -9,7 +9,7 @@
 
 Portal web e biblioteca **genéricos**, para qualquer dataset do BigQuery, que usam **Dataplex** e **IA (Gemini no Vertex AI)** para acelerar três tarefas de governança: **documentar os dados (metadados)**, **proteger a qualidade (data quality)** e **responder perguntas sobre os dados com citação da fonte (catálogo)**. Tudo com **revisão humana** antes de qualquer gravação.
 
-> Projeto de portfólio. Demonstrado com os dados de [combustíveis](../combustiveis-pipeline-gcp/) e com um dataset público do BigQuery, para provar que não depende de uma base específica.
+> Projeto de portfólio. Demonstrado com os dados de [combustíveis](../../serie-combustiveis/combustiveis-pipeline-gcp/) e com um dataset público do BigQuery, para provar que não depende de uma base específica.
 
 ## 🎯 O problema
 
@@ -81,7 +81,7 @@ O portal roda como um **serviço no Cloud Run**, com autenticação por Google L
 | Profiling e *scans* no Dataplex, leitura do BigQuery, Gemini, embeddings | ⬜ A fazer (modo real) |
 | Deploy no Cloud Run com login | ⬜ A fazer |
 
-📋 Plano completo: [planos/08-portal-governanca-dados.md](../planos/08-portal-governanca-dados.md) (Fases 22 a 29). O protótipo antecipa a Fase 25 (portal) com dados simulados; o modo real segue as Fases 22 a 24, 26 e 27. O que falta está em [Próximos passos](#-próximos-passos).
+📋 Plano completo: [planos/08-portal-governanca-dados.md](../../planos/08-portal-governanca-dados.md) (Fases 22 a 29). O protótipo antecipa a Fase 25 (portal) com dados simulados; o modo real segue as Fases 22 a 24, 26 e 27. O que falta está em [Próximos passos](#-próximos-passos).
 
 ## ▶️ Como rodar (modo simulação)
 
@@ -151,7 +151,7 @@ Ferramenta de revisão, sóbria e densa. Os valores ficam em [`.streamlit/config
 
 ## 🧭 Próximos passos
 
-O que falta para o portal sair do protótipo. Está dividido pelo que **depende do GCP** e pelo que **dá para fazer antes**, para o modo real entrar sem retrabalho. O plano completo, com fases e critérios de pronto, está em [planos/08-portal-governanca-dados.md](../planos/08-portal-governanca-dados.md).
+O que falta para o portal sair do protótipo. Está dividido pelo que **depende do GCP** e pelo que **dá para fazer antes**, para o modo real entrar sem retrabalho. O plano completo, com fases e critérios de pronto, está em [planos/08-portal-governanca-dados.md](../../planos/08-portal-governanca-dados.md).
 
 ### Pré-requisitos (a cargo de quem for conectar ao GCP)
 

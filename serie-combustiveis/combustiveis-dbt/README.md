@@ -25,7 +25,7 @@ A silver está limpa, mas ainda é uma tabela larga e repetitiva. Para análise,
 
 ⬜ Aguardando a conclusão do [projeto 1](../combustiveis-pipeline-gcp/).
 
-📋 Plano completo: [planos/02-combustiveis-dbt.md](../planos/02-combustiveis-dbt.md)
+📋 Plano completo: [planos/02-combustiveis-dbt.md](../../planos/02-combustiveis-dbt.md)
 
 ## ❓ Perguntas que o modelo responde
 

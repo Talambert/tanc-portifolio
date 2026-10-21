@@ -8,7 +8,7 @@
 
 Servidor **MCP** (*Model Context Protocol*) que expõe o modelo dimensional do BigQuery para clientes de IA, de forma **segura, limitada em custo e auditável**.
 
-> **Projeto 5 de 6** da série `combustiveis-*`. Lê os marts do [dbt](../combustiveis-dbt/) e serve o [agente de dados](../combustiveis-agente-dados/).
+> **Projeto 5 de 6** da série `combustiveis-*`. Lê os marts do [dbt](../../serie-combustiveis/combustiveis-dbt/) e serve o [agente de dados](../combustiveis-agente-dados/).
 
 ## 🎯 O problema
 
@@ -37,9 +37,9 @@ Deixar um modelo de IA consultar um banco de dados é arriscado: ele pode gerar 
 
 ## 📍 Status
 
-⬜ Aguardando os projetos [1](../combustiveis-pipeline-gcp/) e [2 (dbt)](../combustiveis-dbt/).
+⬜ Aguardando os projetos [1](../../serie-combustiveis/combustiveis-pipeline-gcp/) e [2 (dbt)](../../serie-combustiveis/combustiveis-dbt/).
 
-📋 Plano completo: [planos/05-combustiveis-mcp-e-agente.md](../planos/05-combustiveis-mcp-e-agente.md) (Parte A, Fase 9)
+📋 Plano completo: [planos/05-combustiveis-mcp-e-agente.md](../../planos/05-combustiveis-mcp-e-agente.md) (Parte A, Fase 9)
 
 ## 🧪 O que será demonstrado
 

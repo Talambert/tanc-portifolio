@@ -7,7 +7,7 @@
 
 Agente de IA (Gemini no **Vertex AI**) que acompanha o **Airflow** e o **dbt**: quando uma tarefa ou um teste falha, ele **lê os logs, investiga a causa provável, explica em linguagem clara e propõe a correção**, abrindo uma *issue* ou um *pull request* em rascunho para um humano revisar.
 
-> Projeto da série `combustiveis-*`. Observa o pipeline dos projetos [1](../combustiveis-pipeline-gcp/), [2](../combustiveis-dbt/) e [3](../combustiveis-orquestracao/).
+> Projeto da série `combustiveis-*`. Observa o pipeline dos projetos [1](../../serie-combustiveis/combustiveis-pipeline-gcp/), [2](../../serie-combustiveis/combustiveis-dbt/) e [3](../../serie-combustiveis/combustiveis-orquestracao/).
 
 ## 🎯 O problema
 
@@ -33,9 +33,9 @@ Quando um pipeline quebra de madrugada, alguém precisa abrir logs enormes, desc
 
 ## 📍 Status
 
-⬜ Aguardando os projetos [2 (dbt)](../combustiveis-dbt/) e [3 (orquestração)](../combustiveis-orquestracao/).
+⬜ Aguardando os projetos [2 (dbt)](../../serie-combustiveis/combustiveis-dbt/) e [3 (orquestração)](../../serie-combustiveis/combustiveis-orquestracao/).
 
-📋 Plano completo: [planos/06-combustiveis-agente-observabilidade.md](../planos/06-combustiveis-agente-observabilidade.md) (Fases 14 a 17)
+📋 Plano completo: [planos/06-combustiveis-agente-observabilidade.md](../../planos/06-combustiveis-agente-observabilidade.md) (Fases 14 a 17)
 
 ## 🛡️ Princípios de projeto
 

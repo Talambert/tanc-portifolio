@@ -29,7 +29,7 @@ A ANP publica o levantamento semanal de preços em CSV, mas os arquivos têm arm
                                       comparativo e prova de equivalência
 ```
 
-- **Base:** o pipeline segue o [`template-pipeline`](../template-pipeline/) (tipo `hibrido`, origem `arquivo`) sobre a biblioteca [`dataeng-core`](../lib-dataeng-core/): o contrato e as regras de limpeza ficam em YAML em [`config/`](config/) e [`schemas/`](schemas/).
+- **Base:** o pipeline segue o [`template-pipeline`](../../plataforma-engenharia/template-pipeline/) (tipo `hibrido`, origem `arquivo`) sobre a biblioteca [`dataeng-core`](../../plataforma-engenharia/lib-dataeng-core/): o contrato e as regras de limpeza ficam em YAML em [`config/`](config/) e [`schemas/`](schemas/).
 - **Contrato único:** os dois motores aplicam as mesmas regras (hoje só o motor Python/pandas tem execução local; o Spark é a Fase 3).
 - **Quarentena** para linhas malformadas, com o motivo, em vez de descarte silencioso.
 - **Idempotente:** reexecutar não duplica nem baixa de novo.
@@ -46,7 +46,7 @@ A ANP publica o levantamento semanal de preços em CSV, mas os arquivos têm arm
 | 3 | Motor PySpark → silver | ⬜ A fazer |
 | 4 | Comparativo e prova de equivalência | ⬜ A fazer |
 
-📋 Plano completo: [planos/01-combustiveis-pipeline-gcp.md](../planos/01-combustiveis-pipeline-gcp.md)
+📋 Plano completo: [planos/01-combustiveis-pipeline-gcp.md](../../planos/01-combustiveis-pipeline-gcp.md)
 
 ## 🔬 Status do que existe
 
@@ -102,9 +102,9 @@ Os arquivos vão para `data/raw/` (ignorada pelo git) junto com um `manifest.jso
 A biblioteca `dataeng-core` ainda **não está publicada**: instale-a em modo editável a partir da **raiz do repositório** do portfólio (extra `local` traz o DuckDB) e rode os comandos nesta pasta:
 
 ```bash
-pip install -e "lib-dataeng-core[local]" pytest
+pip install -e "plataforma-engenharia/lib-dataeng-core[local]" pytest
 
-cd combustiveis-pipeline-gcp
+cd serie-combustiveis/combustiveis-pipeline-gcp
 dataeng validate-config --config config/pipeline.yaml
 dataeng plan --config config/pipeline.yaml --ambiente dev
 python -m pytest tests -q          # inclui um run local com amostra sintética

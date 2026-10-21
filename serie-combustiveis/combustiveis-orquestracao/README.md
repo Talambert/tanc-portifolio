@@ -29,4 +29,4 @@ O Cloud Composer cobra por hora de ambiente ligado. O plano é **subir, executar
 
 ⬜ Aguardando os projetos [1](../combustiveis-pipeline-gcp/) e [2](../combustiveis-dbt/).
 
-📋 Plano completo: [planos/03-combustiveis-orquestracao.md](../planos/03-combustiveis-orquestracao.md)
+📋 Plano completo: [planos/03-combustiveis-orquestracao.md](../../planos/03-combustiveis-orquestracao.md)

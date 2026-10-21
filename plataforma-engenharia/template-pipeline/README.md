@@ -6,10 +6,10 @@ Para ir de zero a uma DAG planejada (a montagem real no Airflow não foi validad
 
 ```bash
 pip install cookiecutter
-cookiecutter template-pipeline            # pergunta as variáveis
-cookiecutter template-pipeline --no-input origens=arquivo,api motor_ingestao=ambos modo_carga=merge
-cookiecutter template-pipeline --no-input tipo_projeto=relatorio usa_python=sim
-cookiecutter template-pipeline --no-input tipo_projeto=hibrido origens=arquivo usa_python=sim usa_spark=sim
+cookiecutter plataforma-engenharia/template-pipeline            # pergunta as variáveis
+cookiecutter plataforma-engenharia/template-pipeline --no-input origens=arquivo,api motor_ingestao=ambos modo_carga=merge
+cookiecutter plataforma-engenharia/template-pipeline --no-input tipo_projeto=relatorio usa_python=sim
+cookiecutter plataforma-engenharia/template-pipeline --no-input tipo_projeto=hibrido origens=arquivo usa_python=sim usa_spark=sim
 ```
 
 ## Variáveis
@@ -23,7 +23,7 @@ cookiecutter template-pipeline --no-input tipo_projeto=hibrido origens=arquivo u
 | `usa_python`, `usa_spark` | `nao` (padrão) ou `sim`; valem para `relatorio` e `hibrido`: habilitam a etapa `python` (`custom/enriquecimento.py`) e a etapa `spark` (`spark/recalcula.py`) |
 | `modo_carga` | `append`, `overwrite_particao`, `merge` (`merge` usa `chaves_merge: [id]`). `overwrite_particao` por `_ingestion_date` substitui tudo o que foi carregado no mesmo dia lógico, inclusive por outro `run_id`: prefira `merge` ou partição por coluna de negócio quando mais de um arquivo por dia for esperado. No bloco `pubsub`, `overwrite_particao` vira `append` (merge por `message_id`; sobrescrever a partição apagaria os lotes anteriores) e `merge` usa `chaves_merge: [message_id]` |
 | `projeto_gcp`, `regiao`, `bucket_bronze`, `dataset_silver`, `dataset_gold`, `agenda_cron` | valores de exemplo em `dev.yaml` |
-| `origem_da_biblioteca` | `git` (`dataeng-core[local] @ git+<repositorio_biblioteca>@dataeng-core-vX.Y.Z#subdirectory=lib-dataeng-core`) ou `artifact_registry` (`dataeng-core[local]==X.Y.*` + `requirements.txt` com `--extra-index-url`) |
+| `origem_da_biblioteca` | `git` (`dataeng-core[local] @ git+<repositorio_biblioteca>@dataeng-core-vX.Y.Z#subdirectory=plataforma-engenharia/lib-dataeng-core`) ou `artifact_registry` (`dataeng-core[local]==X.Y.*` + `requirements.txt` com `--extra-index-url`) |
 | `versao_biblioteca`, `repositorio_biblioteca`, `indice_artifact_registry` | versão fixada, URL do repositório Git e índice do Artifact Registry (exemplo fictício) |
 
 ## Tipos de projeto
@@ -56,7 +56,7 @@ O gancho `hooks/pre_gen_project.py` valida as respostas; `hooks/post_gen_project
 ## Testes
 
 ```bash
-pytest template-pipeline/tests -q     # a partir da raiz do repositório; precisa de dataeng-core[local]
+pytest plataforma-engenharia/template-pipeline/tests -q     # a partir da raiz do repositório; precisa de dataeng-core[local]
 ```
 
 Gera a matriz origem x motor x modo de carga (ingestão), `tipo_projeto` x `usa_python` x `usa_spark` (os 12 pares) e uma amostra de `hibrido` x origem x motor x modo de carga (cada valor de cada eixo aparece; o produto cartesiano levaria minutos), valida/planeja cada projeto (inclusive o planejamento das tarefas da DAG em `prod`, sem Airflow), executa os exemplos locais e roda os testes de projetos gerados.

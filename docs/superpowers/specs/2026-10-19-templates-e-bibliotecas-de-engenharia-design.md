@@ -23,13 +23,13 @@ Quando chegar uma demanda, gerar um repositório novo a partir de um template, p
 | DAG | Arquivo no repositório que **monta a DAG a partir do `pipeline.yaml`** (função da biblioteca), com gancho para tarefas extras | O padrão vem da configuração, e o projeto pode editar |
 | Onde fica a lógica | Na biblioteca. O repositório gerado tem configuração, schemas, DDL/DML/views, DAG e ganchos | Melhorias chegam por atualização de versão |
 | Teste sem GCP | Interfaces `Storage`, `Warehouse` e `PubSubClient` com implementação local | O projeto ainda não está conectado ao GCP, e a lógica precisa ser verificável |
-| Pastas | Duas pastas na raiz do portfólio, com prefixo, tratadas como repositórios independentes | Podem ser extraídas depois sem renomear |
+| Pastas | Duas pastas no portfólio (grupo `plataforma-engenharia/`), com prefixo, tratadas como repositórios independentes | Podem ser extraídas depois sem renomear |
 
 ## 3. Estrutura e ordem
 
 ```text
-lib-dataeng-core/     pacote Python `dataeng_core` (distribuição `dataeng-core`)
-template-pipeline/    template Cookiecutter: ingestao | relatorio | hibrido
+plataforma-engenharia/lib-dataeng-core/     pacote Python `dataeng_core` (distribuição `dataeng-core`)
+plataforma-engenharia/template-pipeline/    template Cookiecutter: ingestao | relatorio | hibrido
 ```
 
 O repositório gerado depende de `dataeng-core[...]==X.Y`. O CI da biblioteca **gera um projeto de cada tipo e roda os testes dele**, para nenhuma mudança quebrar o template sem aviso. Outras famílias de template (por exemplo, serviço de API, infraestrutura) seriam pastas à parte, no futuro.
@@ -257,7 +257,7 @@ O que for muito específico de uma origem ou de um processamento entra em `custo
 
 - Tags com prefixo por causa das várias pastas num repositório: `dataeng-core-vX.Y.Z`.
 - Uso real: publicação no Artifact Registry (Python).
-- Portfólio: instalação por Git (`git+https://...@dataeng-core-vX.Y.Z#subdirectory=lib-dataeng-core`), escolhida pela variável `origem_da_biblioteca`.
+- Portfólio: instalação por Git (`git+https://...@dataeng-core-vX.Y.Z#subdirectory=plataforma-engenharia/lib-dataeng-core`), escolhida pela variável `origem_da_biblioteca`.
 - O repositório gerado fixa a versão (`dataeng-core[gcp]==X.Y.*`). Atualizar é trocar a versão e rodar os testes.
 
 ## 8. Fora do escopo
@@ -329,3 +329,4 @@ Pontos em que o código implementado e os rulings ratificados prevalecem sobre o
 10. `append` da ingestão é idempotente por `run_id` (Tarefa 12); `LocalWarehouse` fixa o fuso em UTC (Tarefa 23).
 11. O motor PySpark, o BigQuery, o Pub/Sub, o Airflow, o Cloud Run, o Dataproc, o Cloud Storage, o `docker build` e os fluxos do GitHub Actions **não foram executados** (Tarefas 14, 16, 18, 21, 22, 24). Ver as tabelas de limitações dos READMEs.
 12. A silver não é particionada nesta versão (a seção 4.5 foi ajustada): `overwrite_particao` apaga e reinserre por valor da coluna indicada, varrendo a tabela. `overwrite_particao` por `_ingestion_date` substitui tudo o que foi carregado no mesmo dia lógico, inclusive por outro `run_id`; com mais de um arquivo por dia use `merge` (como o pipeline da ANP).
+13. Em 2026-10-21 as pastas do repositório foram reorganizadas em grupos (`plataforma-engenharia/`, `serie-combustiveis/`, `ia-e-agentes/`, `governanca/` e `pocs/`); os caminhos do texto original (`lib-dataeng-core/`, `template-pipeline/`, `combustiveis-pipeline-gcp/` e os links) foram atualizados para a nova localização.

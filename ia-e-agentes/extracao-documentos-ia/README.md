@@ -7,7 +7,7 @@
 
 Pipeline que recebe **PDFs e planilhas sem padrão fixo**, usa **Gemini (Vertex AI)** para **extrair os dados em um esquema definido**, **valida cada campo** e carrega no BigQuery, enviando para **quarentena** tudo o que não for confiável.
 
-> Projeto independente da série dos combustíveis. Pode alimentar o [pipeline de ingestão](../combustiveis-pipeline-gcp/) quando a fonte não for CSV.
+> Projeto independente da série dos combustíveis. Pode alimentar o [pipeline de ingestão](../../serie-combustiveis/combustiveis-pipeline-gcp/) quando a fonte não for CSV.
 
 ## 🎯 O problema
 
@@ -40,7 +40,7 @@ Muitos dados importantes chegam em formatos que ninguém padronizou: relatórios
 
 ⬜ Planejado. Os documentos de teste serão **gerados por um script a partir de dados fictícios** (com gabarito exato), complementados, se for o caso, por poucos PDFs públicos. Nunca dados de empresas.
 
-📋 Plano completo: [planos/07-extracao-documentos-ia.md](../planos/07-extracao-documentos-ia.md) (Fases 18 a 21)
+📋 Plano completo: [planos/07-extracao-documentos-ia.md](../../planos/07-extracao-documentos-ia.md) (Fases 18 a 21)
 
 ## 🛡️ Princípios de projeto
 

@@ -2,7 +2,7 @@
 
 **Objetivo:** pipeline ELT no GCP que leva os preços de combustíveis da ANP do arquivo cru (bronze) até uma tabela limpa e tipada no BigQuery (silver), com **dois motores** equivalentes: Python no Cloud Run Jobs e PySpark no Dataproc Serverless.
 
-**Base de engenharia:** as Fases 1 a 3 (ingestão, silver e comparação) partem do [`template-pipeline`](../template-pipeline/) (tipo `hibrido`, origem `arquivo`) e da biblioteca [`lib-dataeng-core`](../lib-dataeng-core/). O contrato de dados abaixo vive em `config/pipeline.yaml` e `schemas/`; o template cobre a ingestão e a transformação em Python/pandas (Cloud Run) e uma etapa `spark` (Dataproc), mas o motor Spark **nunca foi executado**: a comparação Python × PySpark de tempo e custo continua sendo o objetivo e o trabalho futuro do projeto.
+**Base de engenharia:** as Fases 1 a 3 (ingestão, silver e comparação) partem do [`template-pipeline`](../plataforma-engenharia/template-pipeline/) (tipo `hibrido`, origem `arquivo`) e da biblioteca [`lib-dataeng-core`](../plataforma-engenharia/lib-dataeng-core/). O contrato de dados abaixo vive em `config/pipeline.yaml` e `schemas/`; o template cobre a ingestão e a transformação em Python/pandas (Cloud Run) e uma etapa `spark` (Dataproc), mas o motor Spark **nunca foi executado**: a comparação Python × PySpark de tempo e custo continua sendo o objetivo e o trabalho futuro do projeto.
 
 **Entrega final:** duas implementações com resultado idêntico, um comparativo de tempo e custo, e infraestrutura reproduzível por Terraform.
 
@@ -28,7 +28,7 @@ combustiveis-pipeline-gcp/
 
 ## Contrato de dados (silver)
 
-Implementado em [`config/pipeline.yaml`](../combustiveis-pipeline-gcp/config/pipeline.yaml) e [`schemas/`](../combustiveis-pipeline-gcp/schemas/). A tabela abaixo continua sendo a referência; as diferenças entre ela e o que a biblioteca faz hoje estão em "Status".
+Implementado em [`config/pipeline.yaml`](../serie-combustiveis/combustiveis-pipeline-gcp/config/pipeline.yaml) e [`schemas/`](../serie-combustiveis/combustiveis-pipeline-gcp/schemas/). A tabela abaixo continua sendo a referência; as diferenças entre ela e o que a biblioteca faz hoje estão em "Status".
 
 | Coluna final | Tipo | Regra |
 |---|---|---|

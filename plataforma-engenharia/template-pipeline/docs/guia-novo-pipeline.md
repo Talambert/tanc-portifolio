@@ -10,7 +10,7 @@ Os blocos de comando marcados no texto fazem parte do teste `tests/test_docs_com
 - A biblioteca `dataeng-core` com o extra `local` e o `cookiecutter`. Na raiz do repositório do portfólio:
 
 ```bash
-pip install -e "lib-dataeng-core[local]" cookiecutter
+pip install -e "plataforma-engenharia/lib-dataeng-core[local]" cookiecutter
 ```
 
 No Windows, use o Git Bash. O Airflow não roda no Windows: localmente a DAG só passa por checagem estática, e a importação real fica para o CI em Linux.
@@ -20,7 +20,7 @@ No Windows, use o Git Bash. O Airflow não roda no Windows: localmente a DAG só
 Escolha o tipo (`ingestao`, `relatorio` ou `hibrido`, veja a seção 5) e rode o `cookiecutter`. O exemplo abaixo gera um **híbrido** com a origem `arquivo` e a etapa `python`, que é o projeto que o teste do guia usa:
 
 ```bash
-cookiecutter template-pipeline --no-input nome_projeto=meu-pipeline tipo_projeto=hibrido origens=arquivo usa_python=sim
+cookiecutter plataforma-engenharia/template-pipeline --no-input nome_projeto=meu-pipeline tipo_projeto=hibrido origens=arquivo usa_python=sim
 cd meu-pipeline
 ```
 
@@ -206,7 +206,7 @@ Esta parte **não foi executada**. Ela lista o que muda e o que você precisa co
 4. **Dataproc:** a ingestão e a etapa `python` em Dataproc exigem uma **imagem do lote** com o `dataeng-core` instalado (`execucao_padrao.dataproc.container_image`); sem ela o planejamento da DAG recusa. O valor gerado é um exemplo a trocar. Os arquivos de entrada do lote (`ingest_entrypoint_uri`, `run_step_entrypoint_uri`) e, com `spark`, o `script_base_uri` são suposições de infraestrutura a conferir.
 5. **Pub/Sub:** configure na assinatura o prazo de ack (`ackDeadlineSeconds`, até 600 s) para cobrir um lote inteiro e um tópico dead-letter com `max_delivery_attempts`. A biblioteca não estende o prazo de ack. Detalhes no README do template.
 
-A importação real da DAG com o Airflow só acontece no CI, em Linux (`lib-dataeng-core/scripts/ci_import_generated_dags.py` gera três projetos e importa cada `dags/*.py`); localmente ela só passa por checagem estática. Esse fluxo nunca foi executado no GitHub.
+A importação real da DAG com o Airflow só acontece no CI, em Linux (`plataforma-engenharia/lib-dataeng-core/scripts/ci_import_generated_dags.py` gera três projetos e importa cada `dags/*.py`); localmente ela só passa por checagem estática. Esse fluxo nunca foi executado no GitHub.
 
 ## 9. O que não foi validado
 

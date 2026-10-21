@@ -14,8 +14,8 @@
 
 Valem para todas as tarefas. Valores copiados da especificação.
 
-- Pastas na raiz do portfólio: `lib-dataeng-core/` (distribuição `dataeng-core`, importação `dataeng_core`) e `template-pipeline/`. Cada uma com README, `pyproject.toml` ou `cookiecutter.json`, `CHANGELOG.md` e CI próprios, como se fossem repositórios independentes.
-- Pacote em `lib-dataeng-core/src/dataeng_core/`; testes em `lib-dataeng-core/tests/`.
+- Pastas em `plataforma-engenharia/` (grupo na raiz do portfólio): `lib-dataeng-core/` (distribuição `dataeng-core`, importação `dataeng_core`) e `template-pipeline/`. Cada uma com README, `pyproject.toml` ou `cookiecutter.json`, `CHANGELOG.md` e CI próprios, como se fossem repositórios independentes.
+- Pacote em `plataforma-engenharia/lib-dataeng-core/src/dataeng_core/`; testes em `plataforma-engenharia/lib-dataeng-core/tests/`.
 - Camadas, da base para o topo: `base → storage, warehouse, pubsub → sources, transform, quality, sql → steps → jobs → airflow, cli`. Cada camada só importa das de baixo; `import-linter` verifica no CI.
 - Extras: `[local]` (duckdb), `[gcp]` (storage, bigquery, pubsub), `[spark]` (pyspark), `[airflow]`, `[dev]`. O pacote base não depende de nada de GCP.
 - Tipos de etapa: `ingestao`, `sql`, `view`, `python`, `spark`, `qualidade`. Origens de ingestão: `arquivo`, `api`, `pubsub`. Motores: `cloud_run`, `dataproc` (e `ambos` só na ingestão do template). `tipo_projeto`: `ingestao`, `relatorio`, `hibrido`.
@@ -49,13 +49,13 @@ Entradas e falhas que a especificação implica mas que provavelmente ninguém t
 ### Tarefa 1: esqueleto da biblioteca e ferramentas
 
 **Arquivos:**
-- Criar: `lib-dataeng-core/pyproject.toml`, `README.md`, `CHANGELOG.md`, `.gitignore`, `.importlinter`, `src/dataeng_core/__init__.py`, um `__init__.py` vazio em cada subpacote (`base`, `storage`, `warehouse`, `pubsub`, `sources`, `transform`, `quality`, `sql`, `steps`, `jobs`, `airflow`, `cli`), `tests/test_smoke.py`.
+- Criar: `plataforma-engenharia/lib-dataeng-core/pyproject.toml`, `README.md`, `CHANGELOG.md`, `.gitignore`, `.importlinter`, `src/dataeng_core/__init__.py`, um `__init__.py` vazio em cada subpacote (`base`, `storage`, `warehouse`, `pubsub`, `sources`, `transform`, `quality`, `sql`, `steps`, `jobs`, `airflow`, `cli`), `tests/test_smoke.py`.
 
 **Interfaces:**
 - Produz: `dataeng_core.__version__: str = "0.1.0"`; script de console `dataeng = dataeng_core.cli:main` (ainda ausente); contrato `import-linter` do tipo `layers` com as camadas da seção de restrições.
 
 - [ ] **Passo 1: escrever o teste** em `tests/test_smoke.py`: `test_version_is_semver` (`re.fullmatch(r"\d+\.\d+\.\d+", dataeng_core.__version__)`) e `test_all_layers_importable` (importa cada subpacote).
-- [ ] **Passo 2: rodar** `pytest lib-dataeng-core/tests/test_smoke.py -v`. Esperado: FALHA (pacote inexistente).
+- [ ] **Passo 2: rodar** `pytest plataforma-engenharia/lib-dataeng-core/tests/test_smoke.py -v`. Esperado: FALHA (pacote inexistente).
 - [ ] **Passo 3: criar** o `pyproject.toml` (`requires-python = ">=3.11"`, extras da restrição global, `[tool.ruff]`, `[tool.mypy]` estrito nos módulos `base`) e a estrutura de pastas. O `.importlinter` declara o contrato `layers` com `dataeng_core.cli | dataeng_core.airflow`, depois `jobs`, `steps`, `sources | transform | quality | sql`, `storage | warehouse | pubsub`, `base` (ordem do topo para a base).
 - [ ] **Passo 4: rodar** `pytest`, `ruff check .`, `mypy src` e `lint-imports`. Esperado: tudo passa.
 - [ ] **Passo 5: commit** `feat(lib): esqueleto do pacote dataeng-core`.
@@ -278,7 +278,7 @@ Entradas e falhas que a especificação implica mas que provavelmente ninguém t
 ### Tarefa 17: `template-pipeline` com o tipo `ingestao`
 
 **Arquivos:**
-- Criar: `template-pipeline/cookiecutter.json`, `README.md`, `CHANGELOG.md`, `hooks/post_gen_project.py`, `{{cookiecutter.nome_projeto}}/` (estrutura da seção 5.2 para o tipo `ingestao`: `config/pipeline.yaml`, `config/ambientes/{local,dev,prod}.yaml`, `schemas/`, `sql/ddl/`, `custom/__init__.py`, `dags/pipeline.py`, `data/amostra.csv`, `Dockerfile`, `pyproject.toml`, `README.md`, `tests/test_config.py`, `tests/test_local_run.py`), `tests/conftest.py`, `tests/test_generation.py`
+- Criar: `plataforma-engenharia/template-pipeline/cookiecutter.json`, `README.md`, `CHANGELOG.md`, `hooks/post_gen_project.py`, `{{cookiecutter.nome_projeto}}/` (estrutura da seção 5.2 para o tipo `ingestao`: `config/pipeline.yaml`, `config/ambientes/{local,dev,prod}.yaml`, `schemas/`, `sql/ddl/`, `custom/__init__.py`, `dags/pipeline.py`, `data/amostra.csv`, `Dockerfile`, `pyproject.toml`, `README.md`, `tests/test_config.py`, `tests/test_local_run.py`), `tests/conftest.py`, `tests/test_generation.py`
 
 **Interfaces:**
 - Consome: `dataeng_core.cli.main`.
@@ -287,7 +287,7 @@ Entradas e falhas que a especificação implica mas que provavelmente ninguém t
 - [ ] **Passo 1: testes (`tests/test_generation.py`).** Função auxiliar `bake(**contexto) -> Path` com `cookiecutter(..., no_input=True, output_dir=tmp_path, extra_context=...)`. `test_ingestao_arquivo_cloud_run_generates_expected_files`; `test_unwanted_blocks_are_removed` (sem `sql/views/`, sem `spark/`, só a DAG do motor escolhido); `test_generated_project_validates_and_plans` (`cli.main(["validate-config", ...]) == 0` e `plan == 0`); `test_generated_project_runs_local_and_is_idempotent`; `test_generated_project_own_tests_pass` (executa o `pytest` do projeto gerado em subprocesso); `test_origem_da_biblioteca_changes_the_dependency_line` (`git` gera uma dependência `git+https://...@dataeng-core-vX.Y.Z#subdirectory=lib-dataeng-core`; `artifact_registry` gera `dataeng-core[...]==X.Y.*` com `--extra-index-url`); `test_dockerfile_installs_pinned_library_and_sets_entrypoint` (checagem estática do texto: instala a versão fixada e usa `python -m dataeng_core.jobs.run_step` como entrada); `test_matrix_origem_motor_modo_carga` (parametrizado: `arquivo`/`api` × `cloud_run`/`dataproc`/`ambos` × `append`/`overwrite_particao`/`merge`, cada combinação precisa validar e fazer `plan`).
 - [ ] **Passo 2: rodar** e ver falhar.
 - [ ] **Passo 3: criar** o template e o gancho (Jinja só nos nomes e valores; os `${}` dos YAML e SQL **não** sofrem renderização do Cookiecutter, pois não usam `{{ }}`).
-- [ ] **Passo 4: rodar** `pytest template-pipeline/tests -v`. Esperado: passa (instalar `dataeng-core[local]` no mesmo ambiente).
+- [ ] **Passo 4: rodar** `pytest plataforma-engenharia/template-pipeline/tests -v`. Esperado: passa (instalar `dataeng-core[local]` no mesmo ambiente).
 - [ ] **Passo 5: commit** `feat(template): template-pipeline com o tipo ingestao`.
 
 ---
@@ -312,7 +312,7 @@ Entradas e falhas que a especificação implica mas que provavelmente ninguém t
 **Arquivos:**
 - Criar: `src/dataeng_core/sources/pubsub.py`
 - Modificar: `steps/ingestao.py` (ramo da origem `pubsub`), `steps/context.py` (`build_context` preenche `pubsub` com `make_pubsub` quando alguma etapa usa a origem `pubsub`), `template-pipeline` (bloco `pubsub` no `pipeline.yaml` e na matriz). O modelo `PubSubOrigem` já existe desde a Tarefa 4.
-- Teste: `tests/sources/test_pubsub.py`, `tests/steps/test_ingestao_pubsub.py`; `template-pipeline/tests/test_generation.py` (estender a matriz)
+- Teste: `tests/sources/test_pubsub.py`, `tests/steps/test_ingestao_pubsub.py`; `plataforma-engenharia/template-pipeline/tests/test_generation.py` (estender a matriz)
 
 **Interfaces:**
 - Consome: `PubSubClient`, `PubSubOrigem` (`assinatura`, `max_mensagens`, `tempo_maximo_s`, `formato: Literal["json"]`, `dedupe_por: Literal["message_id"]`, `schema`).
@@ -373,8 +373,8 @@ Entradas e falhas que a especificação implica mas que provavelmente ninguém t
 ### Tarefa 23: tipos `relatorio` e `hibrido` no template
 
 **Arquivos:**
-- Modificar: `template-pipeline/cookiecutter.json`, `hooks/post_gen_project.py`, o diretório gerado (`sql/views/`, `sql/dml/`, `spark/`, `custom/enriquecimento.py`, exemplos de `pipeline.yaml` por tipo), `tests/test_generation.py`
-- Criar: `template-pipeline/tests/test_hybrid_anp.py`
+- Modificar: `plataforma-engenharia/template-pipeline/cookiecutter.json`, `hooks/post_gen_project.py`, o diretório gerado (`sql/views/`, `sql/dml/`, `spark/`, `custom/enriquecimento.py`, exemplos de `pipeline.yaml` por tipo), `tests/test_generation.py`
+- Criar: `plataforma-engenharia/template-pipeline/tests/test_hybrid_anp.py`
 
 **Interfaces:**
 - Consome: as etapas das Tarefas 20 a 22.
@@ -403,21 +403,21 @@ Entradas e falhas que a especificação implica mas que provavelmente ninguém t
 ### Tarefa 25: guias, READMEs e CHANGELOG
 
 **Arquivos:**
-- Criar/modificar: `lib-dataeng-core/README.md`, `lib-dataeng-core/CHANGELOG.md`, `template-pipeline/docs/guia-novo-pipeline.md`, `template-pipeline/README.md`, `template-pipeline/tests/test_docs_commands.py`
+- Criar/modificar: `plataforma-engenharia/lib-dataeng-core/README.md`, `plataforma-engenharia/lib-dataeng-core/CHANGELOG.md`, `plataforma-engenharia/template-pipeline/docs/guia-novo-pipeline.md`, `plataforma-engenharia/template-pipeline/README.md`, `plataforma-engenharia/template-pipeline/tests/test_docs_commands.py`
 - Modificar: `README.md` da raiz (tabela de projetos e mapa de pastas), `docs/gerar_arquitetura.py` (acrescentar uma caixa para a plataforma, se couber) e `planos/README.md`
 
 **Interfaces:**
 - Produz: guia "criar um novo pipeline" que leva de zero a uma DAG planejada (a montagem real no Airflow não foi validada) (gerar, preencher o YAML, rodar `validate-config`, `plan`, `run local`); tabela de **limitações** copiada da seção 11 da especificação ("implementado e testado com versão local; validar no GCP").
 
 - [ ] **Passo 1: escrever** a documentação. Cada comando do guia é executado de verdade antes de ser citado.
-- [ ] **Passo 2: escrever e rodar** `template-pipeline/tests/test_docs_commands.py`, com `test_guide_commands_run_on_a_generated_project`: extrai de `docs/guia-novo-pipeline.md` os blocos marcados com `<!-- testar -->` e os executa num projeto gerado, esperando código de saída 0.
+- [ ] **Passo 2: escrever e rodar** `plataforma-engenharia/template-pipeline/tests/test_docs_commands.py`, com `test_guide_commands_run_on_a_generated_project`: extrai de `docs/guia-novo-pipeline.md` os blocos marcados com `<!-- testar -->` e os executa num projeto gerado, esperando código de saída 0.
 - [ ] **Passo 3: commit** `docs: guia de novo pipeline, READMEs e limitações`.
 
 ### Tarefa 26: adaptar o `combustiveis-pipeline-gcp` ao template
 
 **Arquivos:**
-- Modificar: `combustiveis-pipeline-gcp/README.md`, `planos/01-combustiveis-pipeline-gcp.md`, `combustiveis-pipeline-gcp/common/sources.yaml` (mantido como manifesto das fontes)
-- Criar: `combustiveis-pipeline-gcp/config/pipeline.yaml` e `schemas/` gerados a partir do template
+- Modificar: `serie-combustiveis/combustiveis-pipeline-gcp/README.md`, `planos/01-combustiveis-pipeline-gcp.md`, `serie-combustiveis/combustiveis-pipeline-gcp/common/sources.yaml` (mantido como manifesto das fontes)
+- Criar: `serie-combustiveis/combustiveis-pipeline-gcp/config/pipeline.yaml` e `schemas/` gerados a partir do template
 
 **Interfaces:**
 - Consome: o projeto `hibrido` testado localmente na Tarefa 23.

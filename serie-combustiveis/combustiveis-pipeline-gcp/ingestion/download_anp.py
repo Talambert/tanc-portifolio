@@ -1,6 +1,6 @@
 """Baixa os arquivos da ANP listados em common/sources.yaml para uma pasta local.
 
-Uso (a partir de combustiveis-pipeline-gcp/):
+Uso (a partir de serie-combustiveis/combustiveis-pipeline-gcp/):
     python ingestion/download_anp.py --check                 # só verifica se as URLs respondem
     python ingestion/download_anp.py --dest data/raw         # baixa o que ainda não existe
     python ingestion/download_anp.py --only ca-2026-01 --unzip

@@ -40,7 +40,7 @@ Agentes que geram SQL costumam parecer corretos e errar em silêncio. O foco des
 
 ⬜ Aguardando o [servidor MCP](../combustiveis-mcp-bigquery/).
 
-📋 Plano completo: [planos/05-combustiveis-mcp-e-agente.md](../planos/05-combustiveis-mcp-e-agente.md) (Parte B, Fases 10 a 13)
+📋 Plano completo: [planos/05-combustiveis-mcp-e-agente.md](../../planos/05-combustiveis-mcp-e-agente.md) (Parte B, Fases 10 a 13)
 
 ## 📊 Resultados (a preencher após a Fase 11)
 

@@ -33,7 +33,7 @@ Um modelo bem feito só gera valor quando alguém consegue enxergar a resposta. 
 
 ⬜ Aguardando o [projeto 2 (dbt)](../combustiveis-dbt/).
 
-📋 Plano completo: [planos/04-combustiveis-bi-powerbi.md](../planos/04-combustiveis-bi-powerbi.md)
+📋 Plano completo: [planos/04-combustiveis-bi-powerbi.md](../../planos/04-combustiveis-bi-powerbi.md)
 
 ## 📚 Fonte dos dados
 

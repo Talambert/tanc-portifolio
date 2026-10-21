@@ -19,11 +19,11 @@ Requer Python 3.11 ou mais novo. O pacote base não depende de nada de GCP. Extr
 | `dev` | pytest, ruff, mypy, import-linter, cookiecutter e demais ferramentas | desenvolvimento da biblioteca |
 
 ```bash
-pip install -e ".[local,dev]"     # a partir de lib-dataeng-core/
+pip install -e ".[local,dev]"     # a partir de plataforma-engenharia/lib-dataeng-core/
 pytest -q                         # testes locais; os de GCP, Airflow e Spark são pulados se faltar o ambiente
 ```
 
-O projeto gerado fixa a versão (`dataeng-core[gcp]==X.Y.*`) e instala por Git (`...@dataeng-core-vX.Y.Z#subdirectory=lib-dataeng-core`) ou pelo Artifact Registry. As tags têm o prefixo `dataeng-core-v`, por causa das várias pastas do repositório.
+O projeto gerado fixa a versão (`dataeng-core[gcp]==X.Y.*`) e instala por Git (`...@dataeng-core-vX.Y.Z#subdirectory=plataforma-engenharia/lib-dataeng-core`) ou pelo Artifact Registry. As tags têm o prefixo `dataeng-core-v`, por causa das várias pastas do repositório.
 
 ## Arquitetura em camadas
 
