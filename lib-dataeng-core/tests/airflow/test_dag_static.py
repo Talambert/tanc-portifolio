@@ -245,6 +245,7 @@ def _gcp_project(tmp_path: Path, *, dataproc_step: str | None = None) -> Path:
     )
     if dataproc_step:
         raw = yaml.safe_load(config.read_text(encoding="utf-8"))
+        raw["execucao_padrao"] = {"dataproc": {"container_image": "img:1"}}
         for etapa in raw["etapas"]:
             if etapa["id"] == dataproc_step:
                 etapa["motor"] = "dataproc"
@@ -286,5 +287,5 @@ def test_build_dag_dataproc_branch_with_fake_airflow(tmp_path: Path, monkeypatch
     batch = op.kwargs["batch"]
     assert isinstance(batch, dict)
     assert batch["pyspark_batch"]["args"][:2] == ["--config", str(config).replace(chr(92), "/")]
-    assert batch["runtime_config"] == {"version": "2.2"}
+    assert batch["runtime_config"] == {"version": "2.2", "container_image": "img:1"}
     assert batch["pyspark_batch"]["main_python_file_uri"] == DATAPROC_INGEST_ENTRYPOINT

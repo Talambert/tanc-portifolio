@@ -42,6 +42,8 @@ Gera a matriz origem x motor x modo de carga, valida/planeja cada projeto, execu
 
 DAG real no Airflow, Cloud Run Job, Dataproc, BigQuery, Pub/Sub real (assinatura, ack e reentrega) e a instalação da biblioteca via Git/Artifact Registry não foram executados; a checagem é estática (texto do `pyproject.toml`/`Dockerfile`, AST das DAGs).
 
+Motor Dataproc (`ingestao`/`python`): exige uma IMAGEM do lote com o `dataeng-core` instalado (suposição de infraestrutura, a biblioteca não a cria). Informe `execucao_padrao.dataproc.container_image` no `pipeline_dataproc.yaml` (ou `ingest_entrypoint_uri`/`run_step_entrypoint_uri`); sem isso o planejamento da DAG falha com erro explicativo. A etapa `qualidade` roda sempre no Cloud Run, mesmo nessa DAG.
+
 ## Notas de segurança e limites
 
 - **Validação:** `hooks/pre_gen_project.py` recusa, antes de gerar qualquer arquivo, valores fora de um formato estrito (cron, ids de projeto/bucket/dataset, região, versão `X.Y.Z`, URLs `https` sem metacaracteres de shell). Por isso os valores entram nos YAML/TOML/Dockerfile sem escape adicional. Valores de escolha (`tipo_projeto`, `motor_ingestao`, `modo_carga`, `origem_da_biblioteca`) são recusados pelo próprio Cookiecutter. Nomes com `"` falham no Windows antes mesmo do gancho (limite do sistema de arquivos).

@@ -105,6 +105,8 @@ def dataproc_batch(spec: TaskSpec, env: Environment) -> dict[str, Any]:
         "pyspark_batch": {"main_python_file_uri": dataproc_main_file(spec), "args": task_args(spec)},
         "runtime_config": {"version": str(spec.resources.get("runtime", DEFAULT_DATAPROC_RUNTIME))},
     }
+    if spec.resources.get("container_image"):
+        batch["runtime_config"]["container_image"] = str(spec.resources["container_image"])
     if "executores" in spec.resources:
         batch["runtime_config"]["properties"] = {"spark.executor.instances": str(spec.resources["executores"])}
     if env.service_account:
@@ -143,7 +145,9 @@ def build_dag(
     Dataproc com o script da etapa.
 
     De `execucao_padrao` a montagem consome só `cloud_run.timeout` (override da execução) e, em `dataproc`,
-    `runtime`, `executores`, `run_step_entrypoint_uri`, `ingest_entrypoint_uri` e `script_base_uri`
+    `runtime`, `executores`, `container_image` (imagem do lote com o dataeng-core; exigida pelo planejador para
+    `ingestao`/`python` no Dataproc, salvo entrypoint sobrescrito), `run_step_entrypoint_uri`,
+    `ingest_entrypoint_uri` e `script_base_uri`
     (`main_python_file_uri` por etapa); as demais chaves (cpu, memoria...) são ignoradas aqui: pertencem à definição
     do job. O Cloud Run Job deve se chamar `cloud_run_job_name(nome)`.
 

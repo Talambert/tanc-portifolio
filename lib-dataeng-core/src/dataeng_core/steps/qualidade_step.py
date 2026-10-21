@@ -63,7 +63,8 @@ def _group_by_table(step: QualidadeStep) -> dict[str, list[QualityCheck]]:
     operation = f"qualidade.{step.id}"
     groups: dict[str, list[QualityCheck]] = {}
     for check in step.verificacoes:
-        assert check.tabela is not None  # garantido pelo modelo
+        if check.tabela is None:  # o modelo já exige; defesa para etapas montadas à mão
+            raise ConfigError(f"etapa '{step.id}': toda verificação exige `tabela`", operation=operation)
         schema, name = split_table(check.tabela, operation=operation)
         for column in check.colunas:
             validate_identifier(column, what="nome de coluna", operation=operation)
@@ -72,7 +73,11 @@ def _group_by_table(step: QualidadeStep) -> dict[str, list[QualityCheck]]:
 
 
 def _columns_of(checks: Sequence[QualityCheck]) -> str:
-    return ", ".join(dict.fromkeys(c for check in checks for c in check.colunas))
+    first: dict[str, str] = {}  # sem diferenciar caixa (o BigQuery recusa `ID, id`); vale a primeira grafia
+    for check in checks:
+        for column in check.colunas:
+            first.setdefault(column.lower(), column)
+    return ", ".join(first.values())
 
 
 def _query_text(table: str, checks: Sequence[QualityCheck]) -> str:
@@ -81,8 +86,13 @@ def _query_text(table: str, checks: Sequence[QualityCheck]) -> str:
 
 def _with_requested_names(df: pd.DataFrame, checks: Sequence[QualityCheck]) -> pd.DataFrame:
     """Nomes de coluna como no YAML (o warehouse pode devolver outra caixa)."""
-    wanted = {c.lower(): c for check in checks for c in check.colunas}
-    return df.set_axis([wanted.get(str(c).lower(), c) for c in df.columns], axis="columns")
+    spellings = [c for check in checks for c in check.colunas]
+    first = {c.lower(): c for c in reversed(spellings)}  # a primeira grafia é a consultada
+    out = df.set_axis([first.get(str(c).lower(), c) for c in df.columns], axis="columns")
+    for c in spellings:  # outras grafias da mesma coluna apontam para os mesmos dados
+        if c not in out.columns:
+            out[c] = out[first[c.lower()]]
+    return out
 
 
 def _describe(result: CheckResult) -> str:

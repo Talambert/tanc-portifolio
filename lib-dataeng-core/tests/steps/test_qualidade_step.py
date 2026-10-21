@@ -261,3 +261,16 @@ def test_non_blocking_warnings_of_every_table_are_reported(make_ctx: MakeCtx) ->
     result = run_step(step, ctx)
     assert result.status == "ok" and result.detail.count("nao_nulo em 'id'") == 2
     assert "tabela 'silver.a'" in result.detail and "tabela 'silver.b'" in result.detail
+
+
+def test_columns_differing_only_by_case_are_selected_once(make_ctx: MakeCtx) -> None:
+    p, step = _step(
+        {"nao_nulo": "ID", "tabela": "silver.vendas"},
+        {"unico": "id", "tabela": "silver.vendas"},
+    )
+    ctx = make_ctx(p)
+    spy = SpyWarehouse(ctx.warehouse)
+    ctx = dataclasses.replace(ctx, warehouse=spy)
+    _load(ctx, "silver.vendas", {"id": ["1", "2"]})
+    assert run_step(step, ctx).status == "ok"
+    assert spy.queries == ["SELECT ID FROM silver.vendas"]

@@ -50,4 +50,5 @@ O YAML guarda só o NOME da variável de ambiente (`segredo_env: API_TOKEN`). O 
 {%- if cookiecutter.motor_ingestao == "ambos" %}
 - Motor `ambos`: duas DAGs, `{{ cookiecutter.nome_projeto }}_cloud_run` (`config/pipeline.yaml`) e `{{ cookiecutter.nome_projeto }}_dataproc` (`config/pipeline_dataproc.yaml`, igual ao primeiro com `motor: dataproc`). Se editar um, replique no outro.
 {%- endif %}
+- Motor Dataproc (`ingestao`/`python`): exige uma IMAGEM do lote com o `dataeng-core` instalado (suposição de infraestrutura, a biblioteca não a cria). Informe `execucao_padrao.dataproc.container_image` no `pipeline_dataproc.yaml` (ou `ingest_entrypoint_uri`/`run_step_entrypoint_uri`); sem isso o planejamento da DAG falha com erro explicativo. A etapa `qualidade` roda sempre no Cloud Run, mesmo nessa DAG.
 - Nada disso (DAG, Cloud Run, Dataproc, BigQuery reais) foi executado na geração do template; só `validate-config`, `plan`, `run local` e checagem estática da DAG.

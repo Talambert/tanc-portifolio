@@ -66,18 +66,20 @@ def test_run_id_template_renders_to_an_id_accepted_by_the_jobs() -> None:
 
 
 def test_ingestion_dataproc_maps_to_dataproc_batch() -> None:
-    pipeline = _pipeline([{**ingest_step("ingere"), "motor": "dataproc"}])
+    pipeline = _pipeline(
+        [{**ingest_step("ingere"), "motor": "dataproc"}], execucao_padrao={"dataproc": {"container_image": "img:1"}}
+    )
     (task,) = plan_tasks(pipeline, config_path=CONFIG)
     assert task.kind == "dataproc_batch"
     # ingestão no Dataproc roda o job com a transformação em Spark (Tarefa 22)
     assert task.command == _command("ingere", module="dataeng_core.jobs.ingest_spark")
-    assert task.resources == {}
+    assert task.resources == {"container_image": "img:1"}
 
 
 def test_resources_come_from_the_default_execution_settings_of_the_motor() -> None:
     execucao = {
         "cloud_run": {"cpu": 1, "memoria": "2Gi", "timeout": 3600},
-        "dataproc": {"runtime": "2.2", "executores": 2},
+        "dataproc": {"runtime": "2.2", "executores": 2, "container_image": "img:1"},
     }
     pipeline = _pipeline(
         [
@@ -88,7 +90,7 @@ def test_resources_come_from_the_default_execution_settings_of_the_motor() -> No
     )
     a, b = plan_tasks(pipeline, config_path=CONFIG)
     assert a.resources == {"cpu": 1, "memoria": "2Gi", "timeout": 3600}
-    assert b.resources == {"runtime": "2.2", "executores": 2}
+    assert b.resources == {"runtime": "2.2", "executores": 2, "container_image": "img:1"}
     a.resources["cpu"] = 99  # cópia: não altera o pipeline
     assert pipeline.execucao_padrao["cloud_run"]["cpu"] == 1
 

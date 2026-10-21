@@ -98,7 +98,9 @@ def test_planner_maps_every_step_type_to_a_task_kind(tmp_path: Path) -> None:
         },
     ]  # fmt: skip
     _write(tmp_path, "spark/job.py", "print('x')")
-    pipeline = _pipeline(etapas, execucao_padrao={"dataproc": {"script_base_uri": "gs://b/proj"}})
+    pipeline = _pipeline(
+        etapas, execucao_padrao={"dataproc": {"script_base_uri": "gs://b/proj", "container_image": "img:1"}}
+    )
     tasks = plan_tasks(pipeline, config_path=_config(tmp_path))
     assert [(t.task_id, t.kind, t.depends_on) for t in tasks] == [
         ("ing_cr", "cloud_run_job", []),
@@ -277,8 +279,9 @@ def test_spark_step_may_set_its_own_script_uri(tmp_path: Path) -> None:
 
 def test_dataproc_entrypoints_per_step_type(tmp_path: Path) -> None:
     env = Environment.model_validate(_env())
-    ingest = _one(tmp_path, {**ingest_step("i"), "motor": "dataproc"})
-    python = _one(tmp_path, {"id": "p", "tipo": "python", "funcao": "m:f", "motor": "dataproc"})
+    img = {"dataproc": {"container_image": "img:1"}}
+    ingest = _one(tmp_path, {**ingest_step("i"), "motor": "dataproc"}, execucao_padrao=img)
+    python = _one(tmp_path, {"id": "p", "tipo": "python", "funcao": "m:f", "motor": "dataproc"}, execucao_padrao=img)
     batch_i, batch_p = dataproc_batch(ingest, env), dataproc_batch(python, env)
     assert batch_i["pyspark_batch"]["main_python_file_uri"] == DATAPROC_INGEST_ENTRYPOINT
     assert batch_p["pyspark_batch"]["main_python_file_uri"] == DATAPROC_RUN_STEP_ENTRYPOINT == DEFAULT_DATAPROC_MAIN
@@ -310,6 +313,7 @@ def test_planner_with_ambos_creates_two_task_sets_named_cloud_run_and_dataproc(
     created_cr, created_dp, _ = _install_fake_airflow(monkeypatch)
     cloud_run_yaml = _gcp_project(tmp_path)
     raw = yaml.safe_load(cloud_run_yaml.read_text(encoding="utf-8"))
+    raw["execucao_padrao"] = {"dataproc": {"container_image": "img:1"}}
     for etapa in raw["etapas"]:
         etapa["motor"] = "dataproc"
     dataproc_yaml = cloud_run_yaml.with_name("pipeline_dataproc.yaml")
@@ -410,3 +414,57 @@ def test_extra_tasks_hook_is_called_with_real_airflow(tmp_path: Path) -> None:
         dag.get_task("resumo").configuration, {"ts_nodash": "20261019T060000", "ds": "2026-10-19"}
     )
     assert "SELECT '20261019T060000' AS r, '{{ literal }}' AS l;" in rendered["query"]["query"]
+
+
+# ------------------------------------------------------------------ revisão, rodada 1
+
+_AROUND = ["", "{", "{{", "}", "}}", "%", "#", "{%", "{#", "%}", "#}", " ", "a{", "}b", "{{{", "}}}", "{ {", "'"]
+
+
+def test_macros_render_exactly_for_every_adjacency_with_jinja_chars(tmp_path: Path) -> None:
+    for pre in _AROUND:
+        for suf in _AROUND:
+            if "'" in pre + suf:
+                continue
+            body = f"{pre}${{run_id}}|{pre}${{ingestion_date}}{suf}"
+            _write(tmp_path, "sql/m.sql", f"SELECT '{body}' AS j")
+            task = _one(tmp_path, {"id": "s", "tipo": "sql", "sql": ["sql/m.sql"]})
+            expected = f"SELECT '{pre}20261019T060000|{pre}2026-10-19{suf}' AS j"
+            assert _render(task.command[0]) == expected, (pre, suf)
+            plain = jinja2.Environment(undefined=jinja2.StrictUndefined, keep_trailing_newline=True)
+            assert plain.from_string(task.command[0]).render(ts_nodash="20261019T060000", ds="2026-10-19") == expected
+
+
+def test_step_id_and_script_with_jinja_are_escaped_in_the_spark_command(tmp_path: Path) -> None:
+    _write(tmp_path, "spark/{{x}}.py", "print('x')")
+    step = {"id": "spk", "tipo": "spark", "script": "spark/{{x}}.py"}
+    task = _one(tmp_path, step, execucao_padrao={"dataproc": {"script_base_uri": "gs://b"}})
+    assert task.command[1] == "spark/{{ '{{' }}x}}.py"
+    assert _render(task.command[1]) == "spark/{{x}}.py"
+
+
+def test_ingestion_on_dataproc_needs_an_image_or_overridden_entrypoints(tmp_path: Path) -> None:
+    ing = {**ingest_step("i"), "motor": "dataproc"}
+    py = {"id": "p", "tipo": "python", "funcao": "m:f", "motor": "dataproc"}
+    for step in (ing, py):
+        with pytest.raises(ConfigError) as exc:
+            _one(tmp_path, step)
+        message = str(exc.value)
+        assert "container_image" in message and "entrypoint_uri" in message and "imagem" in message
+    ok = {"dataproc": {"container_image": "gcr.io/p/lote:1"}}
+    for step in (ing, py):
+        task = _one(tmp_path, step, execucao_padrao=ok)
+        env = Environment.model_validate(_env())
+        assert dataproc_batch(task, env)["runtime_config"]["container_image"] == "gcr.io/p/lote:1"
+    # entrypoint sobrescrito dispensa o erro (o operador assume que a imagem/arquivo existe)
+    assert _one(tmp_path, ing, execucao_padrao={"dataproc": {"ingest_entrypoint_uri": "gs://c/i.py"}})
+    assert _one(tmp_path, py, execucao_padrao={"dataproc": {"run_step_entrypoint_uri": "gs://c/r.py"}})
+    with pytest.raises(ConfigError):  # sobrescrever só o do outro tipo não basta
+        _one(tmp_path, ing, execucao_padrao={"dataproc": {"run_step_entrypoint_uri": "gs://c/r.py"}})
+
+
+def test_global_main_python_file_uri_changed_meaning_is_an_explicit_error(tmp_path: Path) -> None:
+    cfg = {"dataproc": {"container_image": "img", "main_python_file_uri": "gs://x/y.py"}}
+    with pytest.raises(ConfigError) as exc:
+        _one(tmp_path, {**ingest_step("i"), "motor": "dataproc"}, execucao_padrao=cfg)
+    assert "ingest_entrypoint_uri" in str(exc.value) and "run_step_entrypoint_uri" in str(exc.value)

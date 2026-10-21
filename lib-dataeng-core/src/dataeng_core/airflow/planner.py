@@ -14,6 +14,14 @@ Por que `qualidade` não é `bigquery_job`: `run_checks` opera sobre um DataFram
 nula como distinta, bloqueio, gravação de cada resultado no controle). Reescrever isso como SQL agregado divergiria
 da execução local, não gravaria o controle e dependeria de truques (`ERROR()`) para falhar a tarefa. A etapa roda
 com o mesmo `run_step` das demais; o que ela consulta no BigQuery é decidido por `steps.qualidade_step`.
+`qualidade` usa SEMPRE o Cloud Run, mesmo na DAG do `pipeline_dataproc.yaml` (que então também exige o Cloud Run Job).
+O texto do spec 5.x que diz que `qualidade` vira operador do BigQuery está desatualizado (a Tarefa 25 corrige).
+
+Dataproc com `ingestao`/`python`: os arquivos de entrada (`ingest_spark`/`run_step`) só existem em uma IMAGEM do lote
+com o dataeng-core instalado, que a biblioteca não cria (suposição de infraestrutura). O planejador exige
+`execucao_padrao.dataproc.container_image` ou, para o tipo da etapa, `ingest_entrypoint_uri`/`run_step_entrypoint_uri`;
+sem isso levanta `ConfigError` em vez de gerar uma DAG que falharia no Dataproc. `main_python_file_uri` global em
+`execucao_padrao.dataproc` é erro nessas etapas (a chave agora vale só por etapa `spark`).
 
 `motor: ambos` não existe no modelo (é uma variável do template): o projeto gera dois YAMLs, um com
 `motor: cloud_run` e outro com `motor: dataproc`, e duas DAGs (`<nome>_cloud_run` e `<nome>_dataproc`, via
@@ -122,12 +130,29 @@ def _sql_statements(step: SqlStep | ViewStep, root: Path, params: Mapping[str, s
     else:
         for rel in step.sql:
             statements += [s.text for s in prepare_script(step.id, root, rel, values).statements]
-    return [
-        escape_jinja(s)
-        .replace(marks["run_id"], RUN_ID_TEMPLATE)
-        .replace(marks["ingestion_date"], INGESTION_DATE_TEMPLATE)
-        for s in statements
-    ]
+    return [_with_macros(s, marks) for s in statements]
+
+
+def _with_macros(text: str, marks: Mapping[str, str]) -> str:
+    """Escapa o texto para o Jinja e troca as marcas pelas macros, isolando-as dos vizinhos.
+
+    O texto entre as marcas é escapado à parte; um `{` colado antes da macro (que viraria `{{{`) ou um `}` colado
+    depois dela é emitido como `{{ '{' }}`/`{{ '}' }}`, de modo que a renderização devolva exatamente o texto original.
+    """
+    macros = {marks["run_id"]: RUN_ID_TEMPLATE, marks["ingestion_date"]: INGESTION_DATE_TEMPLATE}
+    pieces = re.split("(" + "|".join(map(re.escape, macros)) + ")", text)
+    out: list[str] = []
+    for index, piece in enumerate(pieces):
+        if piece in macros:
+            out.append(macros[piece])
+            continue
+        escaped = escape_jinja(piece)
+        if index + 1 < len(pieces) and escaped.endswith("{"):
+            escaped = escaped[:-1] + "{{ '{' }}"
+        if index > 0 and escaped.startswith("}"):
+            escaped = "{{ '}' }}" + escaped[1:]
+        out.append(escaped)
+    return "".join(out)
 
 
 def _dataproc_script_uri(step: SparkStep, resources: Mapping[str, Any]) -> str:
@@ -148,7 +173,14 @@ def _dataproc_script_uri(step: SparkStep, resources: Mapping[str, Any]) -> str:
 
 def _spark_command(step: SparkStep, params: Mapping[str, str]) -> list[str]:
     """`python <script> --etapa --run-id --param ...`: o mesmo contrato do modo local (`spark_submit_command`)."""
-    command = ["python", step.script.as_posix(), "--etapa", step.id, "--run-id", RUN_ID_TEMPLATE]
+    command = [
+        "python",
+        escape_jinja(step.script.as_posix()),
+        "--etapa",
+        escape_jinja(step.id),
+        "--run-id",
+        RUN_ID_TEMPLATE,
+    ]
     for key, value in sorted({**params, "run_id": "", "ingestion_date": ""}.items()):
         if key == "run_id":
             value = RUN_ID_TEMPLATE
@@ -192,6 +224,29 @@ def plan_tasks(
             assert isinstance(step, IngestaoStep | PythonStep | QualidadeStep)
             motor = "cloud_run" if isinstance(step, QualidadeStep) else (step.motor or "cloud_run")
             module = INGEST_SPARK_MODULE if isinstance(step, IngestaoStep) and motor == "dataproc" else RUN_STEP_MODULE
+            if motor == "dataproc":
+                assert isinstance(step, IngestaoStep | PythonStep)
+                _check_dataproc_entrypoint(step, execucao.get("dataproc", {}))
             command = _job_command(module, step.id, job_config, ambiente)
             tasks.append(TaskSpec(step.id, _KIND_BY_MOTOR[motor], command, depends, dict(execucao.get(motor, {}))))
     return tasks
+
+
+def _check_dataproc_entrypoint(step: IngestaoStep | PythonStep, resources: Mapping[str, Any]) -> None:
+    """Ingestão/python no Dataproc usam entrypoints que só existem numa imagem própria do lote: exige configuração."""
+    if "main_python_file_uri" in resources:
+        raise ConfigError(
+            "`execucao_padrao.dataproc.main_python_file_uri` mudou de significado: agora vale só para etapas "
+            f"`spark` (por etapa). A etapa '{step.id}' usa o ponto de entrada da biblioteca; use "
+            "`ingest_entrypoint_uri` (ingestao) ou `run_step_entrypoint_uri` (python) e retire a chave global.",
+            operation="plan_tasks",
+        )
+    key = "ingest_entrypoint_uri" if isinstance(step, IngestaoStep) else "run_step_entrypoint_uri"
+    if not resources.get("container_image") and not resources.get(key):
+        raise ConfigError(
+            f"etapa '{step.id}': o motor dataproc para '{step.tipo}' roda `{key.split('_entrypoint')[0]}` "
+            "num arquivo de entrada que só existe em uma IMAGEM do lote com o dataeng-core instalado (suposição de "
+            "infraestrutura que a biblioteca não cria). Informe `execucao_padrao.dataproc.container_image` (a "
+            f"imagem do lote) ou, se o arquivo já estiver acessível, `execucao_padrao.dataproc.{key}`.",
+            operation="plan_tasks",
+        )
