@@ -31,7 +31,8 @@ SQL das tarefas BigQuery: o parâmetro indefinido, a sintaxe inválida e o arqui
 (`dataeng plan` e o parse da DAG), antes de qualquer execução. `run_id` e `ingestion_date` não existem no parse: o SQL
 leva as macros do Airflow `{{ ts_nodash }}` e `{{ ds }}`, e o SQL final é renderizado pelo Airflow. Para o Jinja do
 Airflow não interpretar o SQL do usuário, todo `{{`, `{%` e `{#` do SQL e dos valores de parâmetros vira
-`{{ '{{' }}` (etc.), que o Jinja devolve como o texto original; assim nem o SQL nem um parâmetro do yaml injetam Jinja.
+`{{ '{{' }}` (etc.), que o Jinja devolve como o texto original; assim nem o SQL nem um parâmetro do yaml injetam Jinja. O mesmo escape vale para os textos de `execucao_padrao` (`container_image`, `script_base_uri`,
+`main_python_file_uri`, `runtime`...), que chegam a campos de template do lote.
 
 ATENÇÃO: o SQL renderizado (com os valores de `parametros` do yaml e do ambiente) aparece em texto claro na UI do
 Airflow e nos logs do Composer, e os `--param` do script Spark aparecem nos argumentos do lote. Não coloque segredos
@@ -87,6 +88,17 @@ class TaskSpec:
 def escape_jinja(text: str) -> str:
     """Torna o texto literal para o Jinja: `{{`, `{%` e `{#` viram `{{ '{{' }}`, `{{ '{%' }}` e `{{ '{#' }}`."""
     return _JINJA_OPEN.sub(lambda m: "{{ '" + m.group(0) + "' }}", text)
+
+
+def _escape_values(value: Any) -> Any:
+    """`escape_jinja` em todo texto de um valor de configuração (a `execucao_padrao` chega a campos de template)."""
+    if isinstance(value, str):
+        return escape_jinja(value)
+    if isinstance(value, Mapping):
+        return {k: _escape_values(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_escape_values(v) for v in value]
+    return value
 
 
 def task_args(spec: TaskSpec) -> list[str]:
@@ -216,7 +228,7 @@ def plan_tasks(
             statements = _sql_statements(step, root, pipeline.parametros)
             tasks.append(TaskSpec(step.id, "bigquery_job", statements, depends, {}))
         elif isinstance(step, SparkStep):
-            resources = {**execucao.get("dataproc", {}), **step.dataproc}
+            resources = _escape_values({**execucao.get("dataproc", {}), **step.dataproc})
             resources["main_python_file_uri"] = _dataproc_script_uri(step, resources)
             command = _spark_command(step, pipeline.parametros)
             tasks.append(TaskSpec(step.id, "dataproc_batch", command, depends, resources))
@@ -228,7 +240,11 @@ def plan_tasks(
                 assert isinstance(step, IngestaoStep | PythonStep)
                 _check_dataproc_entrypoint(step, execucao.get("dataproc", {}))
             command = _job_command(module, step.id, job_config, ambiente)
-            tasks.append(TaskSpec(step.id, _KIND_BY_MOTOR[motor], command, depends, dict(execucao.get(motor, {}))))
+            tasks.append(
+                TaskSpec(
+                    step.id, _KIND_BY_MOTOR[motor], command, depends, _escape_values(dict(execucao.get(motor, {})))
+                )
+            )
     return tasks
 
 

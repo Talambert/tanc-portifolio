@@ -468,3 +468,18 @@ def test_global_main_python_file_uri_changed_meaning_is_an_explicit_error(tmp_pa
     with pytest.raises(ConfigError) as exc:
         _one(tmp_path, {**ingest_step("i"), "motor": "dataproc"}, execucao_padrao=cfg)
     assert "ingest_entrypoint_uri" in str(exc.value) and "run_step_entrypoint_uri" in str(exc.value)
+
+
+def test_jinja_in_execucao_padrao_dataproc_is_escaped_before_reaching_the_batch(tmp_path: Path) -> None:
+    ing = {**ingest_step("i"), "motor": "dataproc"}
+    hostile = "gcr.io/p/{{ var.value.segredo }}:{% raw %}1"
+    task = _one(
+        tmp_path, ing, execucao_padrao={"dataproc": {"container_image": hostile, "runtime": {"v": ["{{ x }}"]}}}
+    )
+    assert "{{ var" not in str(task.resources) and "{% raw" not in str(task.resources)
+    assert _render(task.resources["container_image"]) == hostile
+    assert _render(task.resources["runtime"]["v"][0]) == "{{ x }}"
+    _write(tmp_path, "spark/a.py", "print('x')")
+    spark = {"id": "spk", "tipo": "spark", "script": "spark/a.py"}
+    task = _one(tmp_path, spark, execucao_padrao={"dataproc": {"script_base_uri": "gs://b/{{ evil }}"}})
+    assert _render(task.resources["main_python_file_uri"]) == "gs://b/{{ evil }}/spark/a.py"
