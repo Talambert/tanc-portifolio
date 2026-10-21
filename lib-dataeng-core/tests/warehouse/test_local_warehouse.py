@@ -237,3 +237,15 @@ def test_view_accepts_trailing_semicolon() -> None:
     wh = LocalWarehouse()
     wh.create_or_replace_view("vds.v", "SELECT 1 AS a;")
     assert int(wh.query("SELECT a FROM vds.v").iloc[0]["a"]) == 1
+
+
+def test_timezone_aware_values_load_into_naive_timestamp_column_as_utc(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Coluna TIMESTAMP (portátil com o BigQuery) recebe o instante em UTC, não na hora local da máquina."""
+    monkeypatch.setenv("TZ", "America/Sao_Paulo")
+    wh = LocalWarehouse()
+    wh.execute_ddl("CREATE TABLE s.t (id INT64, carregado_em TIMESTAMP)")
+    stamp = pd.Timestamp("2026-03-01 12:00:00", tz="UTC")
+    wh.load("s.t", pd.DataFrame({"id": [1], "carregado_em": [stamp]}), mode="append")
+    assert wh.query("SELECT strftime(carregado_em, '%Y-%m-%d %H:%M:%S') AS v FROM s.t")["v"].tolist() == [
+        "2026-03-01 12:00:00"
+    ]

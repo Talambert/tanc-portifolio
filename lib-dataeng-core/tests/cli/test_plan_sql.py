@@ -4,6 +4,7 @@ from pathlib import Path
 
 import duckdb
 import pytest
+import yaml
 from tests.cli.project import make_project
 
 from dataeng_core.cli import main
@@ -114,3 +115,22 @@ def test_view_with_two_statements_is_an_error_in_plan_and_validate(
     (tmp_path / "sql" / "marca.sql").write_text("SELECT 1 AS n;\nSELECT 2 AS n;\n", encoding="utf-8")
     assert main([command, "--config", str(config)]) == 1
     assert "tem 2 instruções" in capsys.readouterr().err
+
+
+def test_plan_shows_the_real_engine_of_quality_steps(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """`qualidade` roda como Cloud Run Job (não BigQuery); sql continua `bigquery`."""
+    config = make_project(tmp_path, with_sql_step=True)
+    data = yaml.safe_load(config.read_text(encoding="utf-8"))
+    data["etapas"].append(
+        {
+            "id": "checa",
+            "tipo": "qualidade",
+            "depende_de": ["resumo"],
+            "verificacoes": [{"nao_nulo": {"tabela": "gold.marca", "colunas": ["n"]}}],
+        }
+    )
+    config.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
+    assert main(["plan", "--config", str(config), "--run-id", RID]) == 0
+    heads = [ln for ln in capsys.readouterr().out.splitlines() if ln[:1].isdigit()]
+    assert any(ln.startswith("3. resumo") and "motor=bigquery" in ln for ln in heads)
+    assert any(ln.startswith("4. checa") and "motor=cloud_run" in ln for ln in heads)

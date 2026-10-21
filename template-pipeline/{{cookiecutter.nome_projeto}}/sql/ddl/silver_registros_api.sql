@@ -1,9 +1,9 @@
 CREATE TABLE IF NOT EXISTS ${dataset_silver}.registros_api (
-  id BIGINT,
-  nome VARCHAR,
+  id INT64,
+  nome STRING,
   valor DECIMAL(18, 2),
-  _run_id VARCHAR,
-  _source_file VARCHAR,
-  _loaded_at TIMESTAMPTZ,
+  _run_id STRING,
+  _source_file STRING,
+  _loaded_at TIMESTAMP,
   _ingestion_date DATE
 );

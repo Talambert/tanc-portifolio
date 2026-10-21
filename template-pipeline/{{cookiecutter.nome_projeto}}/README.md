@@ -23,9 +23,10 @@ O exemplo funciona sem editar nada: lê `data/amostra.csv` (5 linhas sintéticas
 {%- endif %}
 {%- if cookiecutter.tipo_projeto != "ingestao" %}
 
-**SQL portátil:** os `.sql` de `sql/` usam só o subconjunto aceito por DuckDB (local) e BigQuery (`CREATE OR REPLACE ... AS SELECT` com `UNION ALL`, `MERGE`, `COUNT`/`SUM`/`GROUP BY`, tipos `STRING`/`BIGINT`/`DECIMAL`); a sintaxe é validada como BigQuery, mas o SQL nunca rodou no BigQuery real. Parâmetros são `${nome}`.
+**SQL portátil:** os `.sql` de `sql/` (inclusive os DDLs) usam só o que DuckDB (local) e BigQuery aceitam: `CREATE OR REPLACE ... AS SELECT` com `UNION ALL`, `MERGE`, `COUNT`/`SUM`/`GROUP BY` e os tipos `STRING`, `INT64`, `TIMESTAMP`, `DECIMAL(p, s)` e `DATE`. Não use `VARCHAR`, `TIMESTAMPTZ`, `BIGINT` nem `INTEGER` (o DuckDB aceita, o BigQuery não, e o `validate-config` só confere a sintaxe). O SQL nunca rodou no BigQuery real. Parâmetros são `${nome}`.
 {%- endif %}
 {%- if "pubsub" in cookiecutter.origens and cookiecutter.tipo_projeto != "relatorio" %}
+
 ## Origem Pub/Sub
 
 - Cada execução faz UM pull em lote (até `max_mensagens`, esperando até `tempo_maximo_s`); o agendamento da DAG repete o lote. Grava as mensagens cruas no bronze, carrega a silver e a quarentena e SÓ ENTÃO confirma (ack). Se algo falhar antes, nada é confirmado e as mensagens voltam.
@@ -40,6 +41,7 @@ O exemplo funciona sem editar nada: lê `data/amostra.csv` (5 linhas sintéticas
 - **`modo_carga: merge` com chaves de negócio:** em cada lote fica a mensagem de maior `publish_time` por chave; as superadas são confirmadas sem ir para a silver nem para a quarentena. O merge é incondicional: um evento atrasado (mais antigo) que chegue numa execução posterior sobrescreve o mais novo já gravado.
 - **Quarentena:** `_linha_original` guarda a mensagem inteira em base64 (com `attributes`), cerca de 33% maior que o original; mensagens grandes inflam a tabela `<tabela>_rejeitados`.
 {% endif %}
+
 ## O que editar
 
 {%- if cookiecutter.tipo_projeto == "relatorio" %}
@@ -67,10 +69,11 @@ O YAML guarda só o NOME da variável de ambiente (`segredo_env: API_TOKEN`). O 
 - `Dockerfile`: instala `dataeng-core[gcp]` na versão fixada ({{ cookiecutter.versao_biblioteca }}) e usa `python -m dataeng_core.jobs.run_step` como ENTRYPOINT; `--config`, `--ambiente`, `--etapa` e `--run-id` vêm da execução. O Cloud Run Job precisa ter o mesmo nome que a biblioteca calcula a partir de `nome` (minúsculas, dígitos e `-`: `{{ cookiecutter.nome_projeto.lower() }}`).
 - `dags/`: monta a DAG com `build_dag(config_path, job_config_path=...)`. O Airflow é dependência do ambiente de DAGs (Linux), não deste projeto.
 {%- if cookiecutter.tipo_projeto != "relatorio" and cookiecutter.motor_ingestao == "ambos" %}
+- **ATENÇÃO (motor `ambos`):** as duas DAGs gravam nas MESMAS tabelas. Não ative as duas ao mesmo tempo (ou escalone os agendamentos); com `modo_carga=append` e `run_id` diferentes as ingestões duplicariam a silver (use `merge`).
 - Motor `ambos`: duas DAGs, `{{ cookiecutter.nome_projeto }}_cloud_run` (`config/pipeline.yaml`) e `{{ cookiecutter.nome_projeto }}_dataproc` (`config/pipeline_dataproc.yaml`, igual ao primeiro com `motor: dataproc`). Se editar um, replique no outro.
 {%- endif %}
 {%- if cookiecutter.tipo_projeto != "relatorio" and cookiecutter.motor_ingestao != "cloud_run" %}
 - Motor Dataproc (`ingestao`/`python`): exige uma IMAGEM do lote com o `dataeng-core` instalado (suposição de infraestrutura, a biblioteca não a cria). O `container_image` em `execucao_padrao.dataproc` é um EXEMPLO a trocar (alternativa: `ingest_entrypoint_uri`/`run_step_entrypoint_uri`); sem uma imagem real o lote falha.
 {%- endif %}
-- `qualidade` roda SEMPRE no Cloud Run (mesmo na DAG Dataproc): a DAG precisa do Cloud Run Job. `sql` e `view` viram tarefas do BigQuery; `python` roda no Cloud Run{% if cookiecutter.tipo_projeto != "ingestao" and cookiecutter.usa_spark == "sim" %}; `spark` vira lote do Dataproc Serverless{% endif %}.
+- `qualidade` roda SEMPRE no Cloud Run (mesmo na DAG Dataproc; `dataeng plan` mostra `motor=cloud_run` para ela): a DAG precisa do Cloud Run Job. `sql` e `view` viram tarefas do BigQuery; `python` roda no Cloud Run{% if cookiecutter.tipo_projeto != "ingestao" and cookiecutter.usa_spark == "sim" %}; `spark` vira lote do Dataproc Serverless{% endif %}.
 - Nada disso (DAG, Cloud Run, Dataproc, BigQuery reais) foi executado na geração do template; só `validate-config`, `plan`, `run local` e checagem estática da DAG.

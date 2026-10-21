@@ -151,7 +151,7 @@ def test_plan_shows_step_order_and_rendered_sql(anp: Path, capsys: pytest.Captur
     ]
     assert "2. view_preco_medio_uf  tipo=view  motor=bigquery  depende_de=ingere_precos" in out
     assert "3. agrega_uf_produto  tipo=sql  motor=bigquery  depende_de=ingere_precos" in out
-    assert "4. checagem_final  tipo=qualidade" in out and "depende_de=view_preco_medio_uf,agrega_uf_produto" in out
+    assert "4. checagem_final  tipo=qualidade  motor=cloud_run" in out and "depende_de=view_preco_medio_uf,agrega_uf_produto" in out
     # SQL já renderizado: parâmetros trocados pelos valores do ambiente local, nenhum `${` sobrando
     assert "CREATE TABLE IF NOT EXISTS silver.precos_combustiveis (" in out
     assert "     CREATE OR REPLACE VIEW gold.preco_medio_uf AS" in out

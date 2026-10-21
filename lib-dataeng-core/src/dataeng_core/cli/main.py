@@ -104,7 +104,8 @@ def _cmd_plan(args: argparse.Namespace) -> int:
         for number, step in enumerate(pipeline.ordered_steps(), start=1):
             secrets.extend(step_secrets(step))
             deps = f"  depende_de={','.join(step.depende_de)}" if step.depende_de else ""
-            lines = [f"{number}. {step.id}  tipo={step.tipo}  motor={step.motor or 'bigquery'}{deps}"]
+            motor = "cloud_run" if step.tipo == "qualidade" else (step.motor or "bigquery")  # qualidade: Cloud Run Job
+            lines = [f"{number}. {step.id}  tipo={step.tipo}  motor={motor}{deps}"]
             for role, rel in _sql_files(step):
                 lines.append(f"   SQL ({role}) {rel.as_posix()}:")
                 sql, warnings = _rendered(root, step, rel, params)

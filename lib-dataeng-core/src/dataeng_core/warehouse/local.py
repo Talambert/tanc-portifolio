@@ -54,6 +54,8 @@ class LocalWarehouse:
             path.parent.mkdir(parents=True, exist_ok=True)
             target = str(path)
         self._con: Any = duckdb.connect(target)
+        # Determinístico: valores com fuso viram TIMESTAMP (sem fuso, como no BigQuery) em UTC, não na hora local.
+        self._con.execute("SET TimeZone = 'UTC'")
 
     def close(self) -> None:
         self._con.close()

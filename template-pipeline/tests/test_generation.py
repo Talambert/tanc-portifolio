@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import ast
+import re
+from datetime import datetime, timezone
 import subprocess
 import sys
 from collections.abc import Callable
@@ -12,6 +14,7 @@ from pathlib import Path
 import dataeng_core
 import duckdb
 import pytest
+import sqlglot
 from cookiecutter.exceptions import FailedHookException
 from dataeng_core import cli
 from dataeng_core.airflow.planner import TaskSpec, plan_tasks
@@ -212,6 +215,11 @@ def test_generated_project_runs_local_and_is_idempotent(bake: Bake) -> None:
         con.close()
     assert [r[0] for r in rows] == [1, 2, 3, 4, 5]
     assert rows[0][1] == "Alfa"
+    # colunas de controle com os tipos portáteis (TIMESTAMP, não TIMESTAMPTZ): a carga as preenche
+    loaded = _query(root, "SELECT DISTINCT typeof(_loaded_at), _loaded_at IS NOT NULL, typeof(_ingestion_date) FROM silver.registros_arquivo")
+    assert loaded == [("TIMESTAMP", True, "DATE")]
+    (stamp,) = _query(root, "SELECT max(_loaded_at) FROM silver.registros_arquivo")[0]
+    assert abs((datetime.now(timezone.utc).replace(tzinfo=None) - stamp).total_seconds()) < 300  # UTC, sem deslocamento de fuso
 
 
 def test_generated_project_own_tests_pass(bake: Bake) -> None:
@@ -696,3 +704,44 @@ def test_spark_step_is_only_validated_and_planned_not_run(bake: Bake) -> None:
     assert spark.command[:4] == ["python", "spark/recalcula.py", "--etapa", "recalcula_spark"]
     text = (root / "config/pipeline.yaml").read_text(encoding="utf-8")
     assert text.index("id: checagem_final") < text.index("id: recalcula_spark")  # spark por último
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# SQL portátil: o mesmo .sql roda no DuckDB (local) e no BigQuery
+# ---------------------------------------------------------------------------------------------------------------
+NON_PORTABLE_TYPES = re.compile(r"\b(VARCHAR|TIMESTAMPTZ|BIGINT|INTEGER|TEXT|DOUBLE|FLOAT8|INT4|INT8)\b", re.IGNORECASE)
+SQL_SAMPLES = [
+    {"tipo_projeto": "ingestao", "origens": "arquivo,api,pubsub"},
+    {"tipo_projeto": "relatorio", "usa_python": "sim"},
+    {"tipo_projeto": "hibrido", "origens": "arquivo,api,pubsub", "usa_spark": "sim"},
+]
+
+
+@pytest.fixture
+def sql_files(bake: Bake) -> list[Path]:
+    files = []
+    for i, contexto in enumerate(SQL_SAMPLES):
+        root = bake(nome_projeto=f"sql{i}", **contexto)
+        files += sorted((root / "sql").rglob("*.sql"))
+    assert len(files) >= 12
+    return files
+
+
+def test_generated_sql_uses_only_portable_type_names(sql_files: list[Path]) -> None:
+    """Tipos como VARCHAR/TIMESTAMPTZ existem no DuckDB mas não no BigQuery (o validate-config só checa a sintaxe)."""
+    found = []
+    for path in sql_files:
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+            code = line.split("--", 1)[0]
+            found += [f"{path.parent.parent.parent.name}/{path.relative_to(path.parent.parent.parent).as_posix()}:{number}: {m.group(0)}" for m in NON_PORTABLE_TYPES.finditer(code)]
+    assert not found, "tipos não portáteis (use STRING, INT64, TIMESTAMP, DECIMAL(p, s), DATE):\n" + "\n".join(found)
+
+
+@pytest.mark.parametrize("dialect", ["bigquery", "duckdb"])
+def test_generated_sql_parses_in_bigquery_and_duckdb(sql_files: list[Path], dialect: str) -> None:
+    for path in sql_files:
+        text = re.sub(r"\$\{[a-z_]+\}", "x", path.read_text(encoding="utf-8"))
+        try:
+            assert sqlglot.parse(text, read=dialect)
+        except sqlglot.errors.SqlglotError as exc:
+            pytest.fail(f"{path.name} não é SQL válido no dialeto {dialect}: {exc}")
