@@ -6,6 +6,8 @@ from pathlib import Path
 import pytest
 
 from dataeng_core import cli
+from dataeng_core.airflow.planner import plan_tasks
+from dataeng_core.jobs.run_step import load_project
 
 ROOT = Path(__file__).resolve().parent.parent
 CONFIGS = sorted((ROOT / "config").glob("pipeline*.yaml"))
@@ -20,6 +22,14 @@ def test_there_are_configs_and_dags() -> None:
 @pytest.mark.parametrize("comando", ["validate-config", "plan"])
 def test_config_validates_and_plans(config: Path, comando: str) -> None:
     assert cli.main([comando, "--config", str(config), "--ambiente", "local"]) == 0
+
+
+@pytest.mark.parametrize("config", CONFIGS, ids=lambda p: p.name)
+def test_dag_tasks_can_be_planned_without_airflow(config: Path) -> None:
+    """O planejador (a base da DAG) aceita o YAML em `prod`: exige, p.ex., a imagem do lote Dataproc."""
+    pipeline, _, _ = load_project(config, "prod", {})
+    tasks = plan_tasks(pipeline, config_path=str(config), ambiente="prod", job_config_path=f"config/{config.name}")
+    assert [t.task_id for t in tasks] == [s.id for s in pipeline.ordered_steps()]
 
 
 @pytest.mark.parametrize("dag", DAGS, ids=lambda p: p.name)

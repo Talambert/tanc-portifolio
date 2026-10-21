@@ -1,9 +1,11 @@
+{#- tipo_projeto: ingestao = só ingestão; relatorio = só SQL/view/python/spark/qualidade sobre dados semeados;
+    hibrido = ingestão + relatório numa só pipeline. `origens` e `motor_ingestao` não valem para `relatorio`. -#}
 schema_version: 1
 nome: {{ cookiecutter.nome_projeto }}
 agenda: "{{ cookiecutter.agenda_cron }}"
 parametros: {}
 
-etapas:
+etapas:{%- if cookiecutter.tipo_projeto != "relatorio" %}
 {%- for origem in cookiecutter.origens.replace(" ", "").split(",") %}
 {%- if origem == "arquivo" %}
   - id: ingere_arquivo
@@ -107,7 +109,76 @@ etapas:
       - nao_nulo: [id]
 {%- endif %}
 {%- endfor %}
+{%- endif %}
+{%- if cookiecutter.tipo_projeto != "ingestao" %}
+{%- if cookiecutter.tipo_projeto == "relatorio" %}
+{%- set entradas = "semeia_dados" %}
+  # Dados de EXEMPLO para o run local: cria e popula `${dataset_silver}.vendas_exemplo`. Em produção, remova esta
+  # etapa e aponte as consultas de `sql/` para as tabelas reais.
+  - id: semeia_dados
+    tipo: sql
+    sql: [sql/ddl/semeia_vendas_exemplo.sql]
+{%- else %}
+{%- set ids = {"arquivo": "ingere_arquivo", "api": "ingere_api", "pubsub": "ingere_eventos"} %}
+{%- set ingestoes = [] %}
+{%- for origem in cookiecutter.origens.replace(" ", "").split(",") %}{% if ingestoes.append(ids[origem]) %}{% endif %}{% endfor %}
+{%- set entradas = "garante_tabela_base" %}
+  # O relatório lê `silver.{{ cookiecutter.__tabela_base }}`. Esta etapa só cria a tabela se ainda não existir (DDL idempotente):
+  # uma ingestão que não gravou nada (fila ou arquivo vazio) não a cria, e a view falharia.
+  - id: garante_tabela_base
+    tipo: sql
+    depende_de: [{{ ingestoes | join(", ") }}]
+    sql: [sql/ddl/silver_{{ cookiecutter.__tabela_base }}.sql]
+{%- endif %}
+
+  # Relatório: a view lê a tabela base (`{{ cookiecutter.__tabela_base }}`); o MERGE agrega no gold e é idempotente.
+  - id: view_resumo_por_nome
+    tipo: view
+    depende_de: [{{ entradas }}]
+    sql: sql/views/resumo_por_nome.sql           # CREATE OR REPLACE VIEW ${dataset_gold}.resumo_por_nome
+
+  - id: agrega_por_nome
+    tipo: sql
+    depende_de: [{{ entradas }}]
+    sql: [sql/ddl/gold_agregado_por_nome.sql, sql/dml/agrega_por_nome.sql]   # MERGE idempotente
+{%- if cookiecutter.usa_python == "sim" %}
+
+  - id: enriquece
+    tipo: python
+    depende_de: [agrega_por_nome]
+    funcao: custom.enriquecimento:rodar
+{%- endif %}
+
+  - id: checagem_final
+    tipo: qualidade
+    depende_de: [view_resumo_por_nome, agrega_por_nome{% if cookiecutter.usa_python == "sim" %}, enriquece{% endif %}]
+    verificacoes:
+      - nao_nulo: {tabela: "${dataset_gold}.agregado_por_nome", colunas: [nome]}
+      - unico: {tabela: "${dataset_gold}.agregado_por_nome", colunas: [nome]}
+{%- if cookiecutter.usa_spark == "sim" %}
+
+  # Etapa Spark (EXEMPLO): última de propósito. Roda como lote do Dataproc Serverless; localmente exige
+  # spark-submit + Java (extra [spark]). Sem eles, `dataeng run local` falha só nesta etapa, no fim.
+  - id: recalcula_spark
+    tipo: spark
+    depende_de: [agrega_por_nome]
+    script: spark/recalcula.py
+{%- endif %}
+{%- endif %}
 
 execucao_padrao:
-  cloud_run: {cpu: 1, memoria: 2Gi, timeout: 3600}
-  dataproc: {runtime: "2.2", executores: 2}
+  cloud_run: {cpu: 1, memoria: 2Gi, timeout: 3600}   # também roda a etapa `qualidade` (sempre Cloud Run)
+{%- set spark = cookiecutter.tipo_projeto != "ingestao" and cookiecutter.usa_spark == "sim" %}
+{%- if spark or (cookiecutter.tipo_projeto != "relatorio" and cookiecutter.motor_ingestao != "cloud_run") %}
+  dataproc:
+    runtime: "2.2"
+    executores: 2
+{%- if cookiecutter.tipo_projeto != "relatorio" and cookiecutter.motor_ingestao != "cloud_run" %}
+    # EXEMPLO (troque): imagem do lote com o dataeng-core instalado, exigida pelo planejamento da DAG para `ingestao`.
+    container_image: "{{ cookiecutter.regiao }}-docker.pkg.dev/{{ cookiecutter.projeto_gcp }}/meu-repositorio/{{ cookiecutter.nome_projeto | lower }}-lote:{{ cookiecutter.versao_biblioteca }}"
+{%- endif %}
+{%- if spark %}
+    # EXEMPLO (troque): prefixo onde o projeto é publicado; o script da etapa spark fica em <prefixo>/spark/recalcula.py.
+    script_base_uri: "gs://{{ cookiecutter.bucket_bronze }}/codigo/{{ cookiecutter.nome_projeto | lower }}"
+{%- endif %}
+{%- endif %}

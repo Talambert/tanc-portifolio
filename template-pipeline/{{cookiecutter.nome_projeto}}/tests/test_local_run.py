@@ -1,5 +1,7 @@
+{%- set tem_pubsub = "pubsub" in cookiecutter.origens and cookiecutter.tipo_projeto != "relatorio" -%}
+{%- set sem_spark_cli = cookiecutter.tipo_projeto != "ingestao" and cookiecutter.usa_spark == "sim" -%}
 """Executa o pipeline de exemplo no ambiente local (DuckDB) e confere que repetir a execução não duplica.
-{%- if "pubsub" in cookiecutter.origens %}
+{%- if tem_pubsub %}
 
 Origem pubsub: `dataeng run local` cria um Pub/Sub em memória VAZIO (não há como alimentá-lo pela linha
 de comando), então a etapa termina ok com 0 linhas. Para exercitar a ingestão de verdade, o teste
@@ -8,15 +10,24 @@ de comando), então a etapa termina ok com 0 linhas. Para exercitar a ingestão 
 """
 
 import shutil
+{%- if cookiecutter.tipo_projeto != "ingestao" %}
+from decimal import Decimal
+{%- endif %}
 from pathlib import Path
 
 import duckdb
 import pytest
+{%- if not sem_spark_cli %}
 
 from dataeng_core import cli
-{%- if "pubsub" in cookiecutter.origens %}
+{%- endif %}
+{%- if sem_spark_cli or tem_pubsub %}
 from dataeng_core.jobs.run_step import load_project
+{%- endif %}
+{%- if tem_pubsub %}
 from dataeng_core.pubsub import LocalPubSub
+{%- endif %}
+{%- if sem_spark_cli or tem_pubsub %}
 from dataeng_core.steps import build_context, run_pipeline
 {%- endif %}
 
@@ -38,19 +49,71 @@ def _query(project: Path, sql: str) -> list[tuple]:
         return con.execute(sql).fetchall()
     finally:
         con.close()
+{%- if sem_spark_cli %}
+
+
+def _run(project: Path, run_id: str = RUN_ID) -> int:
+    """Executa todas as etapas MENOS a `spark`, que exige spark-submit + Java (extra [spark]) e fica de fora."""
+    pipeline, env, root = load_project(project / "config/pipeline.yaml", "local", {})
+    ids = [s.id for s in pipeline.ordered_steps() if s.tipo != "spark"]
+    ctx = build_context(pipeline, env, project_root=root, run_id=run_id)
+    try:
+        results = run_pipeline(pipeline, ctx, only=ids)
+    finally:
+        ctx.warehouse.close()
+    return 0 if all(r.status == "ok" for r in results) else 1
+{%- else %}
+
+
+def _run(project: Path, run_id: str = RUN_ID) -> int:
+    return cli.main(["run", "local", "--config", str(project / "config/pipeline.yaml"), "--run-id", run_id])
+{%- endif %}
+{%- set tem_dados = cookiecutter.tipo_projeto == "relatorio" or "arquivo" in cookiecutter.origens %}
 
 
 def test_run_local_succeeds_and_is_idempotent(project: Path) -> None:
-    argv = ["run", "local", "--config", str(project / "config/pipeline.yaml"), "--run-id", RUN_ID]
-    assert cli.main(argv) == 0
-{%- if "arquivo" in cookiecutter.origens %}
+    assert _run(project) == 0
+{%- if cookiecutter.tipo_projeto != "relatorio" and "arquivo" in cookiecutter.origens %}
     assert _query(project, "SELECT count(*) FROM silver.registros_arquivo") == [(5,)]
 {%- endif %}
-    assert cli.main(argv) == 0  # mesma tentativa: não duplica
-{%- if "arquivo" in cookiecutter.origens %}
+    assert _run(project) == 0  # mesma tentativa: não duplica
+{%- if cookiecutter.tipo_projeto != "relatorio" and "arquivo" in cookiecutter.origens %}
     assert _query(project, "SELECT count(*) FROM silver.registros_arquivo") == [(5,)]
 {%- endif %}
-{%- if "pubsub" in cookiecutter.origens %}
+{%- if cookiecutter.tipo_projeto != "ingestao" %}
+{%- if cookiecutter.tipo_projeto == "relatorio" %}
+    resumo = [
+        ("Alfa", 2, Decimal("15.00")),
+        ("Beta", 2, Decimal("25.00")),
+        ("Delta", 1, Decimal("3.10")),
+        ("Gama", 1, Decimal("7.25")),
+    ]
+    classes = [("Alfa", "alto"), ("Beta", "alto"), ("Delta", "baixo"), ("Gama", "baixo")]
+{%- elif tem_dados %}
+    resumo = [
+        ("Alfa", 1, Decimal("10.50")),
+        ("Beta", 1, Decimal("20.00")),
+        ("Delta", 1, Decimal("3.10")),
+        ("Epsilon", 1, Decimal("99.99")),
+        ("Gama", 1, Decimal("7.25")),
+    ]
+    classes = [("Alfa", "baixo"), ("Beta", "baixo"), ("Delta", "baixo"), ("Epsilon", "alto"), ("Gama", "baixo")]
+{%- else %}
+    resumo: list[tuple] = []  # só Pub/Sub: a fila local vazia deixa a silver sem linhas
+    classes: list[tuple] = []
+{%- endif %}
+    # A view e o MERGE dão o mesmo resultado, e a 2ª rodada não duplicou nada.
+    assert _query(project, "SELECT nome, qtd, total FROM gold.resumo_por_nome ORDER BY nome") == resumo
+    assert _query(project, "SELECT nome, qtd, total FROM gold.agregado_por_nome ORDER BY nome") == resumo
+{%- if cookiecutter.usa_python == "sim" %}
+    assert _query(project, "SELECT nome, classe FROM gold.agregado_classificado ORDER BY nome") == classes
+{%- endif %}
+{%- endif %}
+    # Uma linha de controle por etapa por execução: 2 rodadas, 2 linhas por etapa.
+    contagens = _query(project, "SELECT etapa, count(*) FROM silver._controle_execucoes GROUP BY etapa")
+    assert contagens and {n for _, n in contagens} == {2}
+    assert _query(project, "SELECT count(*) FROM silver._controle_execucoes WHERE status <> 'ok'") == [(0,)]
+{%- if "pubsub" in cookiecutter.origens and cookiecutter.tipo_projeto != "relatorio" %}
 
 
 # Mensagens sintéticas: 3 válidas, 1 entrega repetida (mesmo message_id) e 1 com JSON inválido.

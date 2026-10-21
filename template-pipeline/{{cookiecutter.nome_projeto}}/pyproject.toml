@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "{{ cookiecutter.nome_projeto }}"
 version = "0.1.0"
-description = "Pipeline de ingestão gerado a partir do template-pipeline."
+description = "Pipeline ({{ cookiecutter.tipo_projeto }}) gerado a partir do template-pipeline."
 requires-python = ">=3.11"
 dependencies = [
 {%- if cookiecutter.origem_da_biblioteca == "git" %}

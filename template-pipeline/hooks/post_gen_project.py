@@ -3,8 +3,13 @@
 import shutil
 from pathlib import Path
 
-ORIGENS = [o.strip() for o in {{ cookiecutter.origens | tojson }}.split(",")]
-MOTOR = {{ cookiecutter.motor_ingestao | tojson }}
+TIPO = {{ cookiecutter.tipo_projeto | tojson }}
+# `origens` e `motor_ingestao` só valem para ingestao e hibrido: no relatorio não há origem nem ingestão (o
+# valor padrão fica ignorado); a DAG do relatorio usa o Cloud Run (python/qualidade) e as tarefas do BigQuery.
+ORIGENS = [] if TIPO == "relatorio" else [o.strip() for o in {{ cookiecutter.origens | tojson }}.split(",")]
+MOTOR = "cloud_run" if TIPO == "relatorio" else {{ cookiecutter.motor_ingestao | tojson }}
+USA_PYTHON = {{ cookiecutter.usa_python | tojson }} == "sim"
+USA_SPARK = {{ cookiecutter.usa_spark | tojson }} == "sim"
 ROOT = Path.cwd()
 
 
@@ -18,10 +23,19 @@ def remove(*caminhos: str) -> None:
 
 
 def main() -> None:
-    # Ingestão não gera views nem scripts Spark (isso é dos tipos relatorio/hibrido).
-    remove("sql/views", "spark")
-
-    # Bloco de origem não escolhido.
+    # Relatório (views, MERGE, python e spark) é dos tipos relatorio/hibrido; `usa_python`/`usa_spark` só valem neles.
+    if TIPO == "ingestao":
+        remove("sql/views", "sql/dml", "sql/ddl/gold_agregado_por_nome.sql")
+    if TIPO == "ingestao" or not USA_PYTHON:
+        remove("custom/enriquecimento.py")
+    if TIPO == "ingestao" or not USA_SPARK:
+        remove("spark")
+    # Os dados de exemplo do relatorio só existem nele; no hibrido a tabela de entrada vem da ingestão.
+    if TIPO != "relatorio":
+        remove("sql/ddl/semeia_vendas_exemplo.sql")
+    # Bloco de origem não escolhido (no relatorio ORIGENS é vazio: sem origem, schemas, DDL da silver nem amostra).
+    if TIPO == "relatorio":
+        remove("schemas")
     if "arquivo" not in ORIGENS:
         remove("data", "schemas/origem.yaml", "sql/ddl/silver_registros_arquivo.sql")
     if "api" not in ORIGENS:

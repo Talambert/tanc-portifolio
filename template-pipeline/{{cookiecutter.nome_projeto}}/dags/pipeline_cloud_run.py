@@ -17,7 +17,7 @@ dag = build_dag(
     ambiente=os.environ.get("DATAENG_AMBIENTE", "prod"),
     # Caminho do mesmo arquivo DENTRO da imagem do Cloud Run Job (relativo ao WORKDIR do Dockerfile).
     job_config_path="config/pipeline.yaml",
-{%- if cookiecutter.motor_ingestao == "ambos" %}
+{%- if cookiecutter.tipo_projeto != "relatorio" and cookiecutter.motor_ingestao == "ambos" %}
     dag_id="{{ cookiecutter.nome_projeto }}_cloud_run",
 {%- endif %}
 )

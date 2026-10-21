@@ -14,10 +14,12 @@ RUN pip install "dataeng-core[gcp] @ git+{{ cookiecutter.repositorio_biblioteca 
 RUN useradd --uid 10001 --create-home app
 WORKDIR /app
 COPY config/ config/
+{%- if cookiecutter.tipo_projeto != "relatorio" %}
 COPY schemas/ schemas/
+{%- endif %}
 COPY sql/ sql/
 COPY custom/ custom/
-{%- if "arquivo" in cookiecutter.origens %}
+{%- if cookiecutter.tipo_projeto != "relatorio" and "arquivo" in cookiecutter.origens %}
 COPY data/ data/
 {%- endif %}
 USER app
