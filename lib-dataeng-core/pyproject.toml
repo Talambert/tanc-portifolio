@@ -18,7 +18,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-local = ["duckdb>=1.0"]
+local = ["duckdb>=1.4"]
 gcp = [
     "google-cloud-storage>=2.14",
     "google-cloud-bigquery>=3.17",

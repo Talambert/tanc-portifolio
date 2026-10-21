@@ -1,4 +1,5 @@
-# Imagem do Cloud Run Job (e do lote Dataproc). A versão da biblioteca é FIXADA; atualizar = trocar a versão
+# Imagem SÓ do Cloud Run Job. O lote Dataproc Serverless usa outra imagem (`container_image` com sufixo `-lote`),
+# com os entrypoints /opt/dataeng/*.py e o usuário `spark`, que esta imagem não tem. A versão da biblioteca é FIXADA; atualizar = trocar a versão
 # aqui e no pyproject.toml e rodar os testes. Sem segredos: variáveis como API_TOKEN vêm da execução
 # (Secret Manager no Cloud Run), nunca da imagem.
 FROM python:3.12-slim
