@@ -9,7 +9,7 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
 {% if cookiecutter.origem_da_biblioteca == "git" %}RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
-RUN pip install "dataeng-core[gcp] @ git+{{ cookiecutter.repositorio_biblioteca }}@dataeng-core-v{{ cookiecutter.versao_biblioteca }}#subdirectory=lib-dataeng-core"
+RUN pip install "dataeng-core[gcp] @ git+{{ cookiecutter.repositorio_biblioteca }}@dataeng-core-v{{ cookiecutter.versao_biblioteca }}#subdirectory=plataforma-engenharia/lib-dataeng-core"
 {% else %}RUN pip install --extra-index-url {{ cookiecutter.indice_artifact_registry }} "dataeng-core[gcp]=={{ cookiecutter.versao_biblioteca.rsplit(".", 1)[0] }}.*"
 {% endif %}
 RUN useradd --uid 10001 --create-home app

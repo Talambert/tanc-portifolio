@@ -238,7 +238,7 @@ def test_generated_api_project_own_tests_pass(bake: Bake) -> None:
 def test_origem_da_biblioteca_changes_the_dependency_line(bake: Bake) -> None:
     git = bake(origem_da_biblioteca="git")
     text = (git / "pyproject.toml").read_text(encoding="utf-8")
-    assert f'"dataeng-core[local] @ git+{GIT_URL}@dataeng-core-v{VERSION}#subdirectory=lib-dataeng-core"' in text
+    assert f'"dataeng-core[local] @ git+{GIT_URL}@dataeng-core-v{VERSION}#subdirectory=plataforma-engenharia/lib-dataeng-core"' in text
     assert "extra-index-url" not in text
     custom = bake(origem_da_biblioteca="git", repositorio_biblioteca="https://example.org/org/repo.git")
     custom_text = (custom / "pyproject.toml").read_text(encoding="utf-8")
@@ -259,7 +259,7 @@ def test_dockerfile_installs_pinned_library_and_sets_entrypoint(bake: Bake) -> N
     assert entry in git
     install = [line for line in git if "dataeng-core" in line and "pip install" in line]
     assert len(install) == 1
-    assert f'"dataeng-core[gcp] @ git+{GIT_URL}@dataeng-core-v{VERSION}#subdirectory=lib-dataeng-core"' in install[0]
+    assert f'"dataeng-core[gcp] @ git+{GIT_URL}@dataeng-core-v{VERSION}#subdirectory=plataforma-engenharia/lib-dataeng-core"' in install[0]
     assert any("apt-get install" in line and "git" in line for line in git)
     assert any(line.startswith("USER ") and "root" not in line for line in git)
     registry = bake(origem_da_biblioteca="artifact_registry", indice_artifact_registry="https://idx.example/simple/")

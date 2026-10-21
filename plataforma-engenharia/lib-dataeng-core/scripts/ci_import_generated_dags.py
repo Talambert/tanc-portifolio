@@ -1,6 +1,6 @@
 """Gera projetos com o template e importa de verdade as DAGs geradas (precisa do Airflow; roda no CI, em Linux).
 
-Uso: python lib-dataeng-core/scripts/ci_import_generated_dags.py <pasta-de-saida>
+Uso: python plataforma-engenharia/lib-dataeng-core/scripts/ci_import_generated_dags.py <pasta-de-saida>
 """
 
 from __future__ import annotations

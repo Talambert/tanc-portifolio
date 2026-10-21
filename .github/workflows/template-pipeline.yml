@@ -1,6 +1,6 @@
 name: template-pipeline
 
-# Fluxo do template template-pipeline/. Tambem dispara por mudancas em lib-dataeng-core/, porque o projeto
+# Fluxo do template plataforma-engenharia/template-pipeline/. Tambem dispara por mudancas em plataforma-engenharia/lib-dataeng-core/, porque o projeto
 # gerado usa a biblioteca e uma mudanca nela pode quebrar o template. Sem segredos nem credenciais GCP.
 #
 # Os testes geram projetos com o cookiecutter e rodam contra a biblioteca instalada da propria pasta do repositorio.
@@ -9,13 +9,13 @@ name: template-pipeline
 on:
   push:
     paths:
-      - "template-pipeline/**"
-      - "lib-dataeng-core/**"
+      - "plataforma-engenharia/template-pipeline/**"
+      - "plataforma-engenharia/lib-dataeng-core/**"
       - ".github/workflows/template-pipeline.yml"
   pull_request:
     paths:
-      - "template-pipeline/**"
-      - "lib-dataeng-core/**"
+      - "plataforma-engenharia/template-pipeline/**"
+      - "plataforma-engenharia/lib-dataeng-core/**"
       - ".github/workflows/template-pipeline.yml"
   workflow_dispatch:
 
@@ -53,9 +53,9 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
           cache: pip
-          cache-dependency-path: lib-dataeng-core/pyproject.toml
+          cache-dependency-path: plataforma-engenharia/lib-dataeng-core/pyproject.toml
       - name: Instalar a biblioteca da pasta do repositorio
-        run: pip install -e "lib-dataeng-core[local,dev]"
+        run: pip install -e "plataforma-engenharia/lib-dataeng-core[local,dev]"
       - name: pytest da matriz de geracao
-        working-directory: template-pipeline
+        working-directory: plataforma-engenharia/template-pipeline
         run: pytest -q

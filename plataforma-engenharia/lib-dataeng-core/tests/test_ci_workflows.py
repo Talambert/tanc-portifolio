@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 import yaml
 
-WORKFLOWS_DIR = Path(__file__).resolve().parents[2] / ".github" / "workflows"
+WORKFLOWS_DIR = Path(__file__).resolve().parents[3] / ".github" / "workflows"
 EXPECTED = ["lib-dataeng-core.yml", "template-pipeline.yml"]
 EVENT_EXPRESSION = re.compile(r"\$\{\{\s*github\.event")
 
