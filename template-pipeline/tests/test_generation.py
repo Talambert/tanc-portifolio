@@ -360,6 +360,8 @@ INVALID = [
     ("agenda_cron", '0 6 * * 1" \n  injected: x', "formato esperado"),
     ("agenda_cron", "0 6 * *", "formato esperado"),
     ("agenda_cron", "@whenever", "formato esperado"),
+    ("__tabela_base", "x; DROP TABLE y", "formato esperado"),
+    ("__tabela_base", 'a"""' + chr(10) + 'import os', "formato esperado"),
     ("projeto_gcp", "a: b\nfoo: bar", "formato esperado"),
     ("projeto_gcp", "Meu_Projeto", "formato esperado"),
     ("regiao", "sao paulo", "formato esperado"),

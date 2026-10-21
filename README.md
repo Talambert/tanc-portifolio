@@ -70,7 +70,7 @@ Cada pasta deste repositório é um projeto independente, com o próprio README,
 
 > ⛽ Os projetos `combustiveis-*` formam **uma única história**: do arquivo cru da ANP ao painel de decisão e, depois, a uma IA que responde perguntas sobre os dados com segurança.
 >
-> 🧩 `lib-dataeng-core` e `template-pipeline` são a **plataforma de templates**: a biblioteca guarda o que se repete entre pipelines e o template gera um repositório novo a partir dela. Foram implementados e testados com a versão local (DuckDB e Pub/Sub em memória); a execução no GCP, no Airflow e no Spark **ainda não foi validada**. O desenho está na [especificação](docs/superpowers/specs/2026-10-19-templates-e-bibliotecas-de-engenharia-design.md).
+> 🧩 `lib-dataeng-core` e `template-pipeline` são a **plataforma de templates**: a biblioteca guarda o que se repete entre pipelines e o template gera um repositório novo a partir dela. Foram implementados e testados com a versão local (DuckDB e Pub/Sub em memória); a execução no GCP, no Airflow e no Spark **ainda não foi validada**, e o CI (GitHub Actions) e o `docker build` **nunca foram executados**. O desenho está na [especificação](docs/superpowers/specs/2026-10-19-templates-e-bibliotecas-de-engenharia-design.md).
 
 ---
 

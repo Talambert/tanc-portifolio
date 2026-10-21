@@ -91,7 +91,7 @@ A transformação é **declarativa** (no YAML) e tem duas implementações: Pyth
 
 - Cada rodada tem um `run_id`, que **precisa começar por `AAAAMMDD`** (ou o chamador informa `ingestion_date`); sem data a execução falha (Tarefa 12). No Airflow, o `run_id` nativo é recusado e a DAG usa `{{ ts_nodash }}` (Tarefa 16). A carga é **idempotente**: reexecutar não duplica.
 - **Bronze:** `<bucket>/bronze/<nome>/ingestion_date=AAAA-MM-DD/run_id=<id>/<arquivo>`, com um manifesto (tamanho e SHA-256).
-- **Silver:** tabela particionada por `_ingestion_date`, com as colunas de controle `_run_id`, `_source_file`, `_loaded_at` e `_ingestion_date` (item 8 da seção 14).
+- **Silver:** tabela com as colunas de controle `_run_id`, `_source_file`, `_loaded_at` e `_ingestion_date` (item 8 da seção 14). Limitação: nesta versão a silver NÃO é particionada (nem nos DDLs nem no `BigQueryWarehouse`); `DELETE` e `MERGE` varrem a tabela (item 12 da seção 14).
 - **Quarentena:** `<tabela>_rejeitados`, com a linha original e o motivo.
 - **Controle:** `_controle_execucoes` (run_id, etapa, status, linhas lidas, gravadas e rejeitadas, backlog restante, resultado da qualidade).
 - **Pub/Sub:** puxa até `max_mensagens` ou `tempo_maximo_s`, grava em lotes JSON no bronze **com os metadados da mensagem** (id, horário de publicação, atributos) e **só então confirma**. Se a gravação falhar, nada é confirmado e as mensagens voltam. Como a entrega é "pelo menos uma vez", a silver deduplica por `message_id`. O backlog restante é registrado na tabela de controle.
@@ -236,7 +236,7 @@ execucao_padrao:
 
 ### 5.4 DAG
 
-`dags/pipeline.py` tem poucas linhas e chama `dataeng_core.airflow.build_dag("config/pipeline.yaml")`. A biblioteca cria as tarefas por tipo: `sql` e `view` viram tarefas do BigQuery (sem contêiner); `ingestao`, `python` e **`qualidade`** viram Cloud Run Job (a `qualidade` executa `run_step`, porque `run_checks` opera sobre um DataFrame; Tarefa 22); `spark` e a ingestão ou `python` em Dataproc viram lote do Dataproc Serverless, que **exige uma imagem do lote com o `dataeng-core`** (`execucao_padrao.dataproc.container_image`) e tem entrypoints configuráveis (Tarefas 21 e 22). Um parâmetro permite acrescentar tarefas extras. Com `motor_ingestao=ambos` no template, geram-se dois YAMLs e duas DAGs (`<nome>_cloud_run` e `<nome>_dataproc`), que escrevem nas mesmas tabelas, o que permite comparar os motores.
+`dags/pipeline.py` tem poucas linhas e chama `dataeng_core.airflow.build_dag("config/pipeline.yaml")`. A biblioteca cria as tarefas por tipo: `sql` e `view` viram tarefas do BigQuery (sem contêiner); `ingestao`, `python` e **`qualidade`** viram Cloud Run Job (a `qualidade` executa `run_step`, porque `run_checks` opera sobre um DataFrame; Tarefa 22); `spark` e a ingestão ou `python` em Dataproc viram lote do Dataproc Serverless, que **exige uma imagem do lote com o `dataeng-core`** (`execucao_padrao.dataproc.container_image`) e tem entrypoints configuráveis (Tarefas 21 e 22). Um parâmetro permite acrescentar tarefas extras. Com `motor_ingestao=ambos` no template, geram-se dois YAMLs e duas DAGs (`<nome>_cloud_run` e `<nome>_dataproc`), que escrevem nas mesmas tabelas; por isso **não ative as duas ao mesmo tempo** (uma sobrescreveria ou duplicaria o trabalho da outra), como diz o README do template.
 
 ### 5.5 Ganchos
 
@@ -327,4 +327,5 @@ Pontos em que o código implementado e os rulings ratificados prevalecem sobre o
 8. A silver tem a coluna de controle `_ingestion_date` além das três da seção 4.5; `_controle_execucoes` só acrescenta linhas (Tarefa 12).
 9. Pub/Sub: `overwrite_particao` é recusado; a silver faz `merge` por `message_id`; a confirmação vem depois de bronze, silver, quarentena, qualidade e DML; `merge` por chave de negócio é incondicional entre execuções (Tarefa 19).
 10. `append` da ingestão é idempotente por `run_id` (Tarefa 12); `LocalWarehouse` fixa o fuso em UTC (Tarefa 23).
-11. O motor PySpark, o BigQuery, o Pub/Sub, o Airflow, o Cloud Run, o Dataproc, o `docker build` e os fluxos do GitHub Actions **não foram executados** (Tarefas 14, 16, 18, 21, 22, 24). Ver as tabelas de limitações dos READMEs.
+11. O motor PySpark, o BigQuery, o Pub/Sub, o Airflow, o Cloud Run, o Dataproc, o Cloud Storage, o `docker build` e os fluxos do GitHub Actions **não foram executados** (Tarefas 14, 16, 18, 21, 22, 24). Ver as tabelas de limitações dos READMEs.
+12. A silver não é particionada nesta versão (a seção 4.5 foi ajustada): `overwrite_particao` apaga e reinserre por valor da coluna indicada, varrendo a tabela. `overwrite_particao` por `_ingestion_date` substitui tudo o que foi carregado no mesmo dia lógico, inclusive por outro `run_id`; com mais de um arquivo por dia use `merge` (como o pipeline da ANP).

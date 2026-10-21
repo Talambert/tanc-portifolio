@@ -16,6 +16,7 @@ V = {
     "bucket_bronze": {{ cookiecutter.bucket_bronze | tojson }},
     "dataset_silver": {{ cookiecutter.dataset_silver | tojson }},
     "dataset_gold": {{ cookiecutter.dataset_gold | tojson }},
+    "__tabela_base": {{ cookiecutter.__tabela_base | tojson }},
     "agenda_cron": {{ cookiecutter.agenda_cron | tojson }},
     "versao_biblioteca": {{ cookiecutter.versao_biblioteca | tojson }},
     "repositorio_biblioteca": {{ cookiecutter.repositorio_biblioteca | tojson }},
@@ -35,6 +36,7 @@ FORMATOS = {
     "bucket_bronze": (r"[a-z0-9][a-z0-9._-]{1,61}[a-z0-9]", "nome de bucket: 3 a 63 caracteres, minúsculas, dígitos, '.', '_' e '-'"),
     "dataset_silver": (r"[A-Za-z_][A-Za-z0-9_]{0,1023}", "dataset do BigQuery: letras, dígitos e '_', sem '-', começando por letra ou '_'"),
     "dataset_gold": (r"[A-Za-z_][A-Za-z0-9_]{0,1023}", "dataset do BigQuery: letras, dígitos e '_', sem '-', começando por letra ou '_'"),
+    "__tabela_base": (r"[a-z][a-z0-9_]{0,62}", "nome de tabela interno: minúsculas, dígitos e '_', começando por letra"),
     "agenda_cron": (
         "(?:" + _CRON_CAMPO + "(?: " + _CRON_CAMPO + ")" + "{4}" + "|@(?:" + _ALIASES + "))",
         "5 campos cron separados por um espaço (ex.: 0 6 * * 1) ou um alias (@daily, @hourly, @weekly, @monthly, ...)",

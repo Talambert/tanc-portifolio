@@ -31,7 +31,8 @@ SQL das tarefas BigQuery: o parâmetro indefinido, a sintaxe inválida e o arqui
 (`dataeng plan` e o parse da DAG), antes de qualquer execução. `run_id` e `ingestion_date` não existem no parse: o SQL
 leva as macros do Airflow `{{ ts_nodash }}` e `{{ ds }}`, e o SQL final é renderizado pelo Airflow. Para o Jinja do
 Airflow não interpretar o SQL do usuário, todo `{{`, `{%` e `{#` do SQL e dos valores de parâmetros vira
-`{{ '{{' }}` (etc.), que o Jinja devolve como o texto original; assim nem o SQL nem um parâmetro do yaml injetam Jinja. O mesmo escape vale para os textos de `execucao_padrao` (`container_image`, `script_base_uri`,
+`{{ '{{' }}` (etc.), que o Jinja devolve como o texto original; assim nem o SQL nem um parâmetro do yaml injetam Jinja.
+O mesmo escape vale para os textos de `execucao_padrao` (`container_image`, `script_base_uri`,
 `main_python_file_uri`, `runtime`...), que chegam a campos de template do lote.
 
 ATENÇÃO: o SQL renderizado (com os valores de `parametros` do yaml e do ambiente) aparece em texto claro na UI do
