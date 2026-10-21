@@ -1,0 +1,17 @@
+# Contrato da silver (plano 01). As colunas de controle (_run_id, _source_file, _loaded_at, _ingestion_date)
+# são acrescentadas pela biblioteca.
+colunas:
+  - {nome: regiao, tipo: texto}
+  - {nome: uf, tipo: texto}
+  - {nome: municipio, tipo: texto}
+  - {nome: bairro, tipo: texto}
+  - {nome: cep, tipo: texto}
+  - {nome: cnpj_revenda, tipo: texto, obrigatoria: true}
+  - {nome: revenda, tipo: texto}
+  - {nome: bandeira, tipo: texto}
+  - {nome: endereco, tipo: texto}
+  - {nome: produto, tipo: texto, obrigatoria: true}
+  - {nome: data_coleta, tipo: data, obrigatoria: true}
+  - {nome: valor_venda, tipo: decimal, obrigatoria: true}
+  - {nome: valor_compra, tipo: decimal}
+  - {nome: unidade_medida, tipo: texto}

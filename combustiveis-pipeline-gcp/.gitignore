@@ -20,3 +20,6 @@ data/
 .venv/
 __pycache__/
 *.py[cod]
+
+# Execução local do pipeline (DuckDB e bronze local)
+.local/

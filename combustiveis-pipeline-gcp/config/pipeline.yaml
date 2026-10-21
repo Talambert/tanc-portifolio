@@ -1,0 +1,80 @@
+# Pipeline da ANP (Fases 1 e 2 do plano 01): arquivo CSV -> bronze -> silver, com quarentena e checagem.
+# Gerado a partir do template `template-pipeline` (tipo `hibrido`, origem `arquivo`) e reduzido ao que o projeto usa:
+# a camada gold fica para o `combustiveis-dbt`. A fonte (URLs) continua em `common/sources.yaml`.
+schema_version: 1
+nome: precos-combustiveis
+agenda: "0 6 * * 1"
+parametros:
+  # Um arquivo por execução. O `id` correspondente fica em common/sources.yaml; `ingestion/download_anp.py --unzip`
+  # grava o CSV em data/raw/. Ajuste o nome ao CSV extraído (veja data/raw/manifest.json) ou passe --param arquivo_anp=...
+  # Em dev/prod use o CSV já copiado para o bucket: --param arquivo_anp=gs://<bucket>/landing/anp/<arquivo>.csv
+  arquivo_anp: data/raw/ca-2026-01.csv
+
+etapas:
+  - id: ingere_precos
+    tipo: ingestao
+    motor: cloud_run
+    origem:
+      tipo: arquivo
+      localizacao: "${arquivo_anp}"
+      formato: csv
+      encoding: utf-8-sig        # CSV da ANP: UTF-8 com BOM
+      delimitador: ";"
+      schema: schemas/origem_precos.yaml
+    destino:
+      bronze: "gs://${bucket_bronze}/bronze/precos_combustiveis/"
+      tabela: "${dataset_silver}.precos_combustiveis"
+      schema: schemas/destino_precos.yaml
+      modo_carga: overwrite_particao
+      particao: _ingestion_date
+      ddl: [sql/pipeline/ddl/silver_precos.sql]
+    transformacao:
+      - renomear:
+          "Regiao - Sigla": regiao
+          "Estado - Sigla": uf
+          "Municipio": municipio
+          "Revenda": revenda
+          "CNPJ da Revenda": cnpj_revenda
+          "Nome da Rua": rua
+          "Numero Rua": numero
+          "Complemento": complemento
+          "Bairro": bairro
+          "Cep": cep
+          "Produto": produto
+          "Data da Coleta": data_coleta
+          "Valor de Venda": valor_venda
+          "Valor de Compra": valor_compra
+          "Unidade de Medida": unidade_medida
+          "Bandeira": bandeira
+      - hook: custom.anp:montar_endereco     # endereco = rua + numero + complemento (pandas; ver custom/anp.py)
+      - normalizar:
+          cnpj_revenda: [apenas_digitos]
+          regiao: [trim, maiusculas]
+          uf: [trim, maiusculas]
+          municipio: [trim, maiusculas]
+          bairro: [trim, maiusculas]
+          cep: [trim]
+          revenda: [trim, colapsar_espacos]
+          bandeira: [trim, colapsar_espacos]
+          produto: [trim, maiusculas]
+      - tipar:
+          data_coleta: {tipo: data, formato: "%d/%m/%Y"}
+          valor_venda: {tipo: decimal, separador_decimal: ","}
+          valor_compra: {tipo: decimal, separador_decimal: ","}
+      - rejeitar_se:
+          - {coluna: cnpj_revenda, regra: regex, padrao: '^\d{14}$'}
+          - {coluna: data_coleta, regra: nao_nulo}
+          - {coluna: valor_venda, regra: faixa, minimo: 0}
+      - deduplicar: [cnpj_revenda, produto, data_coleta]
+    qualidade:
+      - nao_nulo: [cnpj_revenda, produto, data_coleta, valor_venda]
+
+  - id: checagem_silver
+    tipo: qualidade
+    depende_de: [ingere_precos]
+    verificacoes:
+      - nao_nulo: {tabela: "${dataset_silver}.precos_combustiveis", colunas: [cnpj_revenda, produto, data_coleta]}
+      - unico: {tabela: "${dataset_silver}.precos_combustiveis", colunas: [cnpj_revenda, produto, data_coleta]}
+
+execucao_padrao:
+  cloud_run: {cpu: 1, memoria: 2Gi, timeout: 3600}   # também roda a etapa `qualidade` (sempre Cloud Run)
