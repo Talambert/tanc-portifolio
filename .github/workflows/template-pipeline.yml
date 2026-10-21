@@ -1,0 +1,61 @@
+name: template-pipeline
+
+# Fluxo do template template-pipeline/. Tambem dispara por mudancas em lib-dataeng-core/, porque o projeto
+# gerado usa a biblioteca e uma mudanca nela pode quebrar o template. Sem segredos nem credenciais GCP.
+#
+# Os testes geram projetos com o cookiecutter e rodam contra a biblioteca instalada da propria pasta do repositorio.
+# Acoes fixadas por SHA de commit (tags nos comentarios; SHAs conferidos na API do GitHub em 2026-10-21).
+
+on:
+  push:
+    paths:
+      - "template-pipeline/**"
+      - "lib-dataeng-core/**"
+      - ".github/workflows/template-pipeline.yml"
+  pull_request:
+    paths:
+      - "template-pipeline/**"
+      - "lib-dataeng-core/**"
+      - ".github/workflows/template-pipeline.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+jobs:
+  geracao:
+    name: matriz de geracao (${{ matrix.os }}, py${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        # So Linux: a suite gera dezenas de projetos e leva ~2-3 min em maquina local; no Windows do GitHub
+        # (disco e processos mais lentos) custaria bem mais, sem cobrir nada que a matriz da biblioteca ja nao cubra.
+        include:
+          - { os: ubuntu-latest, python: "3.13" }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: lib-dataeng-core/pyproject.toml
+      - name: Instalar a biblioteca da pasta do repositorio
+        run: pip install -e "lib-dataeng-core[local,dev]"
+      - name: pytest da matriz de geracao
+        working-directory: template-pipeline
+        run: pytest -q

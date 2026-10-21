@@ -1,0 +1,169 @@
+name: lib-dataeng-core
+
+# Fluxo da biblioteca lib-dataeng-core/. So dispara por mudancas na pasta (ou no proprio fluxo).
+# Nenhum segredo e nenhuma credencial GCP: os testes marcados `gcp` ficam pulados (exigem
+# GOOGLE_APPLICATION_CREDENTIALS e DATAENG_GCP_PROJECT, que o CI nao define).
+#
+# Acoes fixadas por SHA de commit (a tag esta no comentario; SHAs conferidos na API do GitHub em 2026-10-21).
+# Airflow fixado em 3.3.2 (ultima versao estavel em 2026-10-21) com o arquivo de constraints oficial.
+
+on:
+  push:
+    paths:
+      - "lib-dataeng-core/**"
+      - ".github/workflows/lib-dataeng-core.yml"
+  pull_request:
+    paths:
+      - "lib-dataeng-core/**"
+      - ".github/workflows/lib-dataeng-core.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+jobs:
+  lint:
+    name: lint (ruff, mypy, import-linter)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: lib-dataeng-core/pyproject.toml
+      - name: Instalar a biblioteca com as ferramentas de desenvolvimento
+        run: pip install -e "lib-dataeng-core[local,dev]"
+      - name: ruff check
+        working-directory: lib-dataeng-core
+        run: ruff check .
+      - name: ruff format --check
+        working-directory: lib-dataeng-core
+        run: ruff format --check .
+      - name: mypy
+        working-directory: lib-dataeng-core
+        run: mypy src
+      - name: import-linter (camadas)
+        working-directory: lib-dataeng-core
+        run: lint-imports
+
+  test:
+    name: test (${{ matrix.os }}, py${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Piso suportado (requires-python >= 3.11) e versao mais nova no Linux.
+          - { os: ubuntu-latest, python: "3.11" }
+          - { os: ubuntu-latest, python: "3.13" }
+          # Windows so com a versao mais nova: o ambiente de desenvolvimento do projeto e Windows + 3.13,
+          # e as diferencas de plataforma (caminhos, encodings) nao dependem da versao menor do Python.
+          - { os: windows-latest, python: "3.13" }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: lib-dataeng-core/pyproject.toml
+      - name: Instalar a biblioteca
+        run: pip install -e "lib-dataeng-core[local,dev]"
+      - name: pytest (sem spark, airflow e gcp, que tem job proprio ou exigem credenciais)
+        working-directory: lib-dataeng-core
+        run: pytest -q -m "not spark and not airflow and not gcp"
+
+  spark:
+    name: spark (PySpark real, Java 17)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: lib-dataeng-core/pyproject.toml
+      - name: Instalar a biblioteca com PySpark
+        run: pip install -e "lib-dataeng-core[local,spark,dev]"
+      - name: pytest -m spark
+        working-directory: lib-dataeng-core
+        run: pytest -q -m spark
+
+  airflow:
+    name: airflow (3.3.2, importa as DAGs geradas)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # Airflow 3.3.2 aceita Python 3.10-3.14 (requires-python no PyPI) e publica constraints para 3.11, 3.12 e 3.13.
+      AIRFLOW_VERSION: "3.3.2"
+      PYTHON_VERSION: "3.12"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: lib-dataeng-core/pyproject.toml
+      - name: Instalar a biblioteca e o Airflow com as constraints oficiais
+        run: |
+          pip install -e "lib-dataeng-core[local,airflow,dev]" "apache-airflow==${AIRFLOW_VERSION}" \
+            --constraint "https://raw.githubusercontent.com/apache/airflow/constraints-${AIRFLOW_VERSION}/constraints-${PYTHON_VERSION}.txt"
+      - name: pytest -m airflow
+        working-directory: lib-dataeng-core
+        run: pytest -q -m airflow
+      - name: Importar as DAGs geradas pelo template
+        run: python lib-dataeng-core/scripts/ci_import_generated_dags.py "$RUNNER_TEMP/dags-geradas"
+
+  build:
+    name: build (sdist e wheel)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: lib-dataeng-core/pyproject.toml
+      - name: Instalar build e twine
+        run: pip install build twine
+      - name: Construir
+        working-directory: lib-dataeng-core
+        run: python -m build
+      - name: twine check
+        working-directory: lib-dataeng-core
+        run: twine check dist/*
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dataeng-core-dist
+          path: lib-dataeng-core/dist/
+          if-no-files-found: error
+          retention-days: 14
