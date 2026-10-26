@@ -1,0 +1,25 @@
+# Dados baixados e artefatos locais (nunca versionar)
+data/
+*.csv
+*.zip
+*.part
+
+# Credenciais
+*.json
+!tests/**/*.json
+.env
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+
+# Execução local do pipeline (DuckDB e bronze local)
+.local/

@@ -1,0 +1,7 @@
+modo: local
+projeto_gcp: projeto-sintetico
+regiao: regiao-sintetica
+bucket_bronze: bronze-sintetico
+dataset_silver: silver
+dataset_gold: gold
+pasta_local: .local

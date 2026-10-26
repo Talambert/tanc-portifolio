@@ -1,0 +1,132 @@
+# Identidade visual do portal. As cores e a tipografia ficam aqui, não espalhadas pelo código.
+#
+# Direção: ferramenta de revisão, sóbria e densa. Verde-floresta como única cor de ação; âmbar e
+# vermelho reservados a alertas; tipografia IBM Plex (Sans para texto, Mono para identificadores).
+
+[client]
+toolbarMode = "minimal"          # esconde "Deploy" e o menu padrão do Streamlit
+
+[server]
+enableStaticServing = true       # serve as fontes de portal/static/
+
+[theme]
+font = "IBM Plex Sans"
+codeFont = "IBM Plex Mono"
+baseFontSize = 15
+baseRadius = "0.375rem"
+buttonRadius = "0.375rem"
+showWidgetBorder = true
+showSidebarBorder = true
+headingFontSizes = ["1.9rem", "1.3rem", "1.1rem", "1.0rem", "0.95rem", "0.85rem"]
+headingFontWeights = [600, 600, 600, 600, 600, 600]
+metricValueFontSize = "1.9rem"
+metricValueFontWeight = 600
+
+[[theme.fontFaces]]
+family = "IBM Plex Sans"
+url = "app/static/fonts/ibm-plex-sans-latin-400-normal.woff2"
+weight = 400
+style = "normal"
+
+[[theme.fontFaces]]
+family = "IBM Plex Sans"
+url = "app/static/fonts/ibm-plex-sans-latin-400-italic.woff2"
+weight = 400
+style = "italic"
+
+[[theme.fontFaces]]
+family = "IBM Plex Sans"
+url = "app/static/fonts/ibm-plex-sans-latin-500-normal.woff2"
+weight = 500
+style = "normal"
+
+[[theme.fontFaces]]
+family = "IBM Plex Sans"
+url = "app/static/fonts/ibm-plex-sans-latin-600-normal.woff2"
+weight = 600
+style = "normal"
+
+[[theme.fontFaces]]
+family = "IBM Plex Sans"
+url = "app/static/fonts/ibm-plex-sans-latin-700-normal.woff2"
+weight = 700
+style = "normal"
+
+[[theme.fontFaces]]
+family = "IBM Plex Mono"
+url = "app/static/fonts/ibm-plex-mono-latin-400-normal.woff2"
+weight = 400
+style = "normal"
+
+[[theme.fontFaces]]
+family = "IBM Plex Mono"
+url = "app/static/fonts/ibm-plex-mono-latin-500-normal.woff2"
+weight = 500
+style = "normal"
+
+# ---------- Tema claro ----------
+[theme.light]
+primaryColor = "#0A5C20"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F1F4F2"
+textColor = "#0E1612"
+borderColor = "#D3DCD6"
+codeBackgroundColor = "#F1F4F2"
+codeTextColor = "#08461A"
+greenColor = "#0A5C20"
+greenBackgroundColor = "#E3F4E7"
+greenTextColor = "#08461A"
+orangeColor = "#B25E00"
+orangeBackgroundColor = "#FFF1D6"
+orangeTextColor = "#7A4100"
+yellowColor = "#B7791F"
+yellowBackgroundColor = "#FFF6DD"
+yellowTextColor = "#6B4A00"
+redColor = "#B3261E"
+redBackgroundColor = "#FDE7E5"
+redTextColor = "#8C1D18"
+blueColor = "#1F5FA8"
+blueBackgroundColor = "#E7F0FA"
+blueTextColor = "#164A85"
+grayColor = "#5B6A62"
+grayBackgroundColor = "#E9EEEB"
+grayTextColor = "#44524A"
+
+[theme.light.sidebar]
+backgroundColor = "#F1F4F2"
+secondaryBackgroundColor = "#E5EBE7"
+
+# ---------- Tema escuro ----------
+[theme.dark]
+primaryColor = "#2A7F4F"
+backgroundColor = "#0F1512"
+secondaryBackgroundColor = "#18211C"
+textColor = "#E4EBE6"
+borderColor = "#2A3A31"
+codeBackgroundColor = "#18211C"
+codeTextColor = "#8EE0AE"
+greenColor = "#4FC47F"
+greenBackgroundColor = "#14301F"
+greenTextColor = "#8EE0AE"
+orangeColor = "#F0A64A"
+orangeBackgroundColor = "#3A2A10"
+orangeTextColor = "#F7C98A"
+yellowColor = "#E0B84C"
+yellowBackgroundColor = "#33290D"
+yellowTextColor = "#F0D98C"
+redColor = "#F08A83"
+redBackgroundColor = "#3C1A18"
+redTextColor = "#F7B5B0"
+blueColor = "#7FB2EA"
+blueBackgroundColor = "#14263B"
+blueTextColor = "#A9CBF2"
+grayColor = "#93A39A"
+grayBackgroundColor = "#202C25"
+grayTextColor = "#B3C1B9"
+
+[theme.dark.sidebar]
+backgroundColor = "#131A16"
+secondaryBackgroundColor = "#1B251F"
+
+[browser]
+gatherUsageStats = false

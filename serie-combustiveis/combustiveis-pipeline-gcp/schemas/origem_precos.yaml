@@ -1,0 +1,19 @@
+# Cabeçalho do CSV da ANP (levantamento de preços), como vem no arquivo; tudo texto, a tipagem é feita na transformação.
+# Layout conforme o formato público conhecido; NÃO foi conferido contra um arquivo real nesta etapa (sem download).
+colunas:
+  - {nome: "Regiao - Sigla", tipo: texto}
+  - {nome: "Estado - Sigla", tipo: texto}
+  - {nome: "Municipio", tipo: texto}
+  - {nome: "Revenda", tipo: texto}
+  - {nome: "CNPJ da Revenda", tipo: texto, obrigatoria: true}
+  - {nome: "Nome da Rua", tipo: texto}
+  - {nome: "Numero Rua", tipo: texto}
+  - {nome: "Complemento", tipo: texto}
+  - {nome: "Bairro", tipo: texto}
+  - {nome: "Cep", tipo: texto}
+  - {nome: "Produto", tipo: texto, obrigatoria: true}
+  - {nome: "Data da Coleta", tipo: texto, obrigatoria: true}
+  - {nome: "Valor de Venda", tipo: texto, obrigatoria: true}
+  - {nome: "Valor de Compra", tipo: texto}
+  - {nome: "Unidade de Medida", tipo: texto}
+  - {nome: "Bandeira", tipo: texto}

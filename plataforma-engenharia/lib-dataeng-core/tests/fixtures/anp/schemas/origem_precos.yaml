@@ -1,0 +1,7 @@
+colunas:
+  - {nome: cnpj_revenda, tipo: texto, obrigatoria: true}
+  - {nome: razao_social, tipo: texto}
+  - {nome: endereco, tipo: texto}
+  - {nome: produto, tipo: texto}
+  - {nome: data_coleta, tipo: texto}
+  - {nome: valor_venda, tipo: texto}

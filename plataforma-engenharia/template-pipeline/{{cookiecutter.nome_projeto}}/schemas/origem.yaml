@@ -1,0 +1,5 @@
+# Colunas do arquivo de origem (tudo texto; a tipagem é feita em `transformacao`).
+colunas:
+  - {nome: id, tipo: texto, obrigatoria: true}
+  - {nome: nome, tipo: texto}
+  - {nome: valor, tipo: texto}

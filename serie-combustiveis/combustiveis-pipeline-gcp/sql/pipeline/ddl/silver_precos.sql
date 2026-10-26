@@ -1,0 +1,20 @@
+CREATE TABLE IF NOT EXISTS ${dataset_silver}.precos_combustiveis (
+  regiao STRING,
+  uf STRING,
+  municipio STRING,
+  bairro STRING,
+  cep STRING,
+  cnpj_revenda STRING,
+  revenda STRING,
+  bandeira STRING,
+  endereco STRING,
+  produto STRING,
+  data_coleta DATE,
+  valor_venda DECIMAL(10, 2),
+  valor_compra DECIMAL(10, 2),
+  unidade_medida STRING,
+  _run_id STRING,
+  _source_file STRING,
+  _loaded_at TIMESTAMP,
+  _ingestion_date DATE
+);

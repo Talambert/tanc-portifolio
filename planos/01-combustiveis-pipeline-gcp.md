@@ -2,26 +2,33 @@
 
 **Objetivo:** pipeline ELT no GCP que leva os preços de combustíveis da ANP do arquivo cru (bronze) até uma tabela limpa e tipada no BigQuery (silver), com **dois motores** equivalentes: Python no Cloud Run Jobs e PySpark no Dataproc Serverless.
 
+**Base de engenharia:** as Fases 1 a 3 (ingestão, silver e comparação) partem do [`template-pipeline`](../plataforma-engenharia/template-pipeline/) (tipo `hibrido`, origem `arquivo`) e da biblioteca [`lib-dataeng-core`](../plataforma-engenharia/lib-dataeng-core/). O contrato de dados abaixo vive em `config/pipeline.yaml` e `schemas/`; o template cobre a ingestão e a transformação em Python/pandas (Cloud Run) e uma etapa `spark` (Dataproc), mas o motor Spark **nunca foi executado**: a comparação Python × PySpark de tempo e custo continua sendo o objetivo e o trabalho futuro do projeto.
+
 **Entrega final:** duas implementações com resultado idêntico, um comparativo de tempo e custo, e infraestrutura reproduzível por Terraform.
 
 ## Estrutura da pasta
 
 ```text
 combustiveis-pipeline-gcp/
-├── common/              # contrato compartilhado entre os motores
-│   ├── schema.py        # colunas, tipos e nomes finais
+├── common/              # manifesto de fontes e regras em texto
 │   ├── rules.md         # regras de limpeza (fonte da verdade, em texto)
 │   └── sources.yaml     # manifesto explícito de URLs da ANP
+├── config/              # (template) pipeline.yaml e ambientes/ local, dev, prod
+├── schemas/             # (template) colunas do CSV de origem e da silver; substitui o common/schema.py
+├── custom/              # (template) ganchos de transformação (endereco)
 ├── ingestion/           # Fase 1: download → Cloud Storage (bronze)
 ├── python-cloudrun/     # Fase 2: motor Python
 ├── pyspark-dataproc/    # Fase 3: motor PySpark
 ├── sql/                 # verificação de equivalência e consultas de apoio
+│   └── pipeline/        # (template) DDL da silver
 ├── infra/               # Terraform
 ├── tests/
 └── README.md
 ```
 
 ## Contrato de dados (silver)
+
+Implementado em [`config/pipeline.yaml`](../serie-combustiveis/combustiveis-pipeline-gcp/config/pipeline.yaml) e [`schemas/`](../serie-combustiveis/combustiveis-pipeline-gcp/schemas/). A tabela abaixo continua sendo a referência; as diferenças entre ela e o que a biblioteca faz hoje estão em "Status".
 
 | Coluna final | Tipo | Regra |
 |---|---|---|
@@ -38,7 +45,15 @@ combustiveis-pipeline-gcp/
 
 - **Chave natural:** `cnpj_revenda + produto + data_coleta`. Duplicatas são removidas, e a contagem removida é registrada.
 - **Linhas malformadas** (campo com `;` sem aspas, colunas deslocadas) vão para uma tabela de **quarentena** (`silver_rejeitados`) com o motivo, em vez de serem descartadas em silêncio.
-- **Idempotência:** a carga substitui por partição (`data_coleta` por mês). Rodar duas vezes dá o mesmo resultado.
+- **Idempotência:** a carga é `merge` pelo grão (`cnpj_revenda, produto, data_coleta`). Rodar duas vezes dá o mesmo resultado.
+
+## Status
+
+**Real:** `config/` e `schemas/` gerados do template e adaptados ao contrato acima; `dataeng validate-config` e `dataeng plan` passam em `local`, `dev` e `prod`; `dataeng run local` roda com uma amostra **sintética** (teste `tests/test_pipeline_config.py`): CNPJ só com dígitos, vírgula decimal, `dd/mm/aaaa`, quarentena, deduplicação e `endereco` montado.
+
+**Não real:** nenhuma execução em GCP; nenhum dado real da ANP processado (o cabeçalho do CSV de origem segue o layout público conhecido e não foi conferido contra um arquivo real); Spark não executado.
+
+**Diferenças deliberadas em relação ao contrato:** a carga é `merge` por `cnpj_revenda, produto, data_coleta` (idempotente por grão e segura quando vários arquivos caem no mesmo dia lógico; `overwrite_particao` por `_ingestion_date` apagaria o arquivo anterior) e não a partição por mês de `data_coleta`; a quarentena é `<tabela>_rejeitados` (`precos_combustiveis_rejeitados`); `cep` só recebe `trim` (falta "só dígitos e hífen"); `produto` ainda sem lista controlada; `DECIMAL(10, 2)` no lugar de `NUMERIC` (portável); `arquivo_origem` e `carregado_em` viram `_source_file` e `_loaded_at`; o bronze segue `bronze/precos_combustiveis/ingestion_date=.../run_id=.../`, não `bronze/ca/ano=.../`.
 
 ## Fases
 
@@ -50,6 +65,7 @@ combustiveis-pipeline-gcp/
 - ✅ **Pronto quando:** `terraform apply` e `terraform destroy` funcionam do zero.
 
 ### Fase 1 — Ingestão (bronze)
+- [ ] (base pronta no template: etapa `ingestao` com bronze, manifesto de tamanho e SHA-256 e carga idempotente por `run_id`; falta executar no GCP)
 - [ ] `sources.yaml` com as URLs reais (semestrais de 2023 em diante, mensais para o semestre corrente).
 - [ ] Download com retry e `User-Agent` de navegador (o servidor responde 403/404 a clientes simples).
 - [ ] Descompactar ZIP e gravar no bucket em `bronze/ca/ano=AAAA/semestre=S/...`.
@@ -66,6 +82,7 @@ combustiveis-pipeline-gcp/
 - ✅ **Pronto quando:** contagem de linhas da silver + quarentena = linhas do arquivo de origem.
 
 ### Fase 3 — Motor PySpark (silver)
+- [ ] (o template tem a etapa `spark` e o motor Spark da biblioteca, nunca executados; o gancho `custom/anp.py` precisará de versão Spark)
 - [ ] Mesmo contrato em PySpark, lendo do bucket com `option("sep", ";")` e `encoding=UTF-8`.
 - [ ] Gravação no BigQuery pelo conector Spark-BigQuery (testar escrita direta vs. indireta e registrar a escolha).
 - [ ] Teste local com PySpark antes de gastar na nuvem.
