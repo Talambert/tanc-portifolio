@@ -1,0 +1,9 @@
+.git
+.local/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+tests/
+dags/
+README.md

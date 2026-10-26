@@ -4,12 +4,12 @@ Roadmap dos próximos projetos do portfólio. Os quatro projetos contam **uma ú
 
 | # | Projeto (pasta) | Plano | Fases |
 |:-:|---|---|:-:|
-| 1 | `combustiveis-pipeline-gcp` | [01-combustiveis-pipeline-gcp.md](01-combustiveis-pipeline-gcp.md) | 0, 1, 2, 3, 4 |
-| 2 | `combustiveis-dbt` | [02-combustiveis-dbt.md](02-combustiveis-dbt.md) | 5 |
-| 3 | `combustiveis-orquestracao` | [03-combustiveis-orquestracao.md](03-combustiveis-orquestracao.md) | 6 |
-| 4 | `combustiveis-bi-powerbi` | [04-combustiveis-bi-powerbi.md](04-combustiveis-bi-powerbi.md) | 7 |
-| 5 | `combustiveis-mcp-bigquery` | [05-combustiveis-mcp-e-agente.md](05-combustiveis-mcp-e-agente.md) (Parte A) | 9 |
-| 6 | `combustiveis-agente-dados` | [05-combustiveis-mcp-e-agente.md](05-combustiveis-mcp-e-agente.md) (Parte B) | 10 a 13 |
+| 1 | [`combustiveis-pipeline-gcp`](../serie-combustiveis/combustiveis-pipeline-gcp/) | [01-combustiveis-pipeline-gcp.md](01-combustiveis-pipeline-gcp.md) | 0, 1, 2, 3, 4 |
+| 2 | [`combustiveis-dbt`](../serie-combustiveis/combustiveis-dbt/) | [02-combustiveis-dbt.md](02-combustiveis-dbt.md) | 5 |
+| 3 | [`combustiveis-orquestracao`](../serie-combustiveis/combustiveis-orquestracao/) | [03-combustiveis-orquestracao.md](03-combustiveis-orquestracao.md) | 6 |
+| 4 | [`combustiveis-bi-powerbi`](../serie-combustiveis/combustiveis-bi-powerbi/) | [04-combustiveis-bi-powerbi.md](04-combustiveis-bi-powerbi.md) | 7 |
+| 5 | [`combustiveis-mcp-bigquery`](../ia-e-agentes/combustiveis-mcp-bigquery/) | [05-combustiveis-mcp-e-agente.md](05-combustiveis-mcp-e-agente.md) (Parte A) | 9 |
+| 6 | [`combustiveis-agente-dados`](../ia-e-agentes/combustiveis-agente-dados/) | [05-combustiveis-mcp-e-agente.md](05-combustiveis-mcp-e-agente.md) (Parte B) | 10 a 13 |
 
 Fase 8 (acabamento dos projetos 1 a 4) está no fim deste arquivo. Os projetos 5 e 6 têm o próprio acabamento (Fase 13) no plano deles.
 
@@ -17,15 +17,23 @@ Fase 8 (acabamento dos projetos 1 a 4) está no fim deste arquivo. Os projetos 5
 
 | # | Projeto (pasta) | Plano | Fases | Depende de |
 |:-:|---|---|:-:|---|
-| 7 | `combustiveis-agente-observabilidade` | [06-combustiveis-agente-observabilidade.md](06-combustiveis-agente-observabilidade.md) | 14 a 17 | Projetos 2 (dbt) e 3 (Airflow) |
-| 8 | `extracao-documentos-ia` | [07-extracao-documentos-ia.md](07-extracao-documentos-ia.md) | 18 a 21 | Independente; pode alimentar o projeto 1 |
-| 9 | `portal-governanca-dados` | [08-portal-governanca-dados.md](08-portal-governanca-dados.md) | 22 a 29 | **Genérico** (qualquer dataset do BigQuery). Os projetos 1 e 2 fornecem dados de demonstração e o gabarito de avaliação |
+| 7 | [`combustiveis-agente-observabilidade`](../ia-e-agentes/combustiveis-agente-observabilidade/) | [06-combustiveis-agente-observabilidade.md](06-combustiveis-agente-observabilidade.md) | 14 a 17 | Projetos 2 (dbt) e 3 (Airflow) |
+| 8 | [`extracao-documentos-ia`](../ia-e-agentes/extracao-documentos-ia/) | [07-extracao-documentos-ia.md](07-extracao-documentos-ia.md) | 18 a 21 | Independente; pode alimentar o projeto 1 |
+| 9 | [`portal-governanca-dados`](../governanca/portal-governanca-dados/) | [08-portal-governanca-dados.md](08-portal-governanca-dados.md) | 22 a 29 | **Genérico** (qualquer dataset do BigQuery). Os projetos 1 e 2 fornecem dados de demonstração e o gabarito de avaliação |
 
 > Os arquivos de plano seguem a numeração dos projetos, com uma exceção: `05` cobre dois projetos (o servidor MCP e o agente de dados).
 >
 > 🛡️ O projeto 9 é uma **biblioteca + portal no Cloud Run** com menu de governança e três módulos: **Metadados**, **Data Quality** e **Catálogo (RAG)**. Ele **não é específico de combustíveis**, e o menu foi pensado para receber outros módulos no futuro.
 
 > 🤖 Os projetos 5 e 6 usam **somente o Vertex AI** (Gemini) e dependem dos marts do projeto 2. Não dependem do Airflow (projeto 3) nem do Power BI (projeto 4).
+
+### 🧩 Plataforma de templates e bibliotecas de engenharia de dados
+
+| # | Projeto (pasta) | Especificação | Plano | Estado |
+|:-:|---|---|---|---|
+| 10 | [`lib-dataeng-core`](../plataforma-engenharia/lib-dataeng-core/) e [`template-pipeline`](../plataforma-engenharia/template-pipeline/) | [especificação de desenho](../docs/superpowers/specs/2026-10-19-templates-e-bibliotecas-de-engenharia-design.md) | [plano de implementação](../docs/superpowers/plans/2026-10-19-templates-e-bibliotecas-de-engenharia.md) | Implementado e testado com a versão local; GCP, Airflow e Spark reais não validados |
+
+> O projeto 10 é **independente** dos projetos 1 a 9. O `combustiveis-pipeline-gcp` (projeto 1) é o primeiro consumidor previsto: o plano dele é ajustado para usar o template. Os planos deste projeto ficam em `docs/superpowers/`, e não nesta pasta.
 
 ## Fluxo de ponta a ponta
 

@@ -1,0 +1,8 @@
+# Ambiente de desenvolvimento no GCP. Valores de EXEMPLO (fictícios): troque pelos do seu projeto.
+modo: gcp
+projeto_gcp: meu-projeto-dev
+regiao: southamerica-east1
+bucket_bronze: meu-projeto-dev-bronze
+dataset_silver: silver
+dataset_gold: gold
+service_account: pipeline-dev@meu-projeto-dev.iam.gserviceaccount.com

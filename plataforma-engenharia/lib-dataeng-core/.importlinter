@@ -1,0 +1,13 @@
+[importlinter]
+root_package = dataeng_core
+
+[importlinter:contract:camadas]
+name = Camadas da biblioteca (cada camada só importa das de baixo)
+type = layers
+layers =
+    dataeng_core.cli | dataeng_core.airflow
+    dataeng_core.jobs
+    dataeng_core.steps
+    dataeng_core.sources | dataeng_core.transform | dataeng_core.quality | dataeng_core.sql
+    dataeng_core.storage | dataeng_core.warehouse | dataeng_core.pubsub
+    dataeng_core.base

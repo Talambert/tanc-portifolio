@@ -1,8 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1150" viewBox="0 0 1800 1150" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1340" viewBox="0 0 1800 1340" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif">
 <title>Arquitetura do portfólio de dados</title>
 <desc>Do arquivo cru da ANP ao painel e ao portal de governança com IA: ingestão para o Cloud Storage, processamento para a silver, transformação com dbt para a gold, consumo no Power BI e em um agente de dados, e um portal de governança que gera metadados, regras de data quality e serve um catálogo. Cada caixa indica a pasta do projeto no repositório.</desc>
 <defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1F2A37"/></marker><marker id="arrowDash" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5B6775"/></marker></defs>
-<rect width="1800" height="1150" fill="#FFFFFF"/>
+<rect width="1800" height="1340" fill="#FFFFFF"/>
 <text x="40" y="52" font-size="30" font-weight="700" fill="#1F2A37" text-anchor="start" font-style="normal">Arquitetura do portfólio: do dado bruto à governança com IA</text>
 <text x="40" y="80" font-size="15.5" font-weight="400" fill="#5B6775" text-anchor="start" font-style="normal">Série de projetos de combustíveis (dados abertos da ANP) e portal de governança. As cores indicam o status de cada parte.</text>
 <rect x="40" y="100" width="430" height="96" rx="12" fill="#F1F2F4" stroke="#7A828C" stroke-width="2" stroke-dasharray="7 5"/>
@@ -151,18 +151,36 @@
 <polyline points="1655,415 1655,640" fill="none" stroke="#5B6775" stroke-width="2" stroke-dasharray="7 6" stroke-linejoin="round" marker-end="url(#arrowDash)"/>
 <text x="1195" y="620" font-size="13.5" font-weight="400" fill="#5B6775" text-anchor="start" font-style="italic">lê esquema, amostra mascarada e profiling</text>
 <text x="1668" y="620" font-size="13.5" font-weight="400" fill="#5B6775" text-anchor="start" font-style="italic">lê os marts</text>
-<rect x="40" y="1068" width="26" height="18" rx="4" fill="#E3F4E7" stroke="#0A5C20" stroke-width="2"/>
-<text x="76" y="1082" font-size="14.5" font-weight="400" fill="#1F2A37" text-anchor="start" font-style="normal">Pronto</text>
-<rect x="159.2" y="1068" width="26" height="18" rx="4" fill="#FFF1D6" stroke="#D98200" stroke-width="2"/>
-<text x="195.2" y="1082" font-size="14.5" font-weight="400" fill="#1F2A37" text-anchor="start" font-style="normal">Em andamento ou protótipo</text>
-<rect x="434.2" y="1068" width="26" height="18" rx="4" fill="#F1F2F4" stroke="#7A828C" stroke-width="2" stroke-dasharray="7 5"/>
-<text x="470.2" y="1082" font-size="14.5" font-weight="400" fill="#1F2A37" text-anchor="start" font-style="normal">Planejado</text>
-<rect x="578.0" y="1068" width="26" height="18" rx="4" fill="#FFFFFF" stroke="#9AA3AE" stroke-width="2"/>
-<text x="614.0" y="1082" font-size="14.5" font-weight="400" fill="#1F2A37" text-anchor="start" font-style="normal">Fonte ou serviço externo</text>
-<polyline points="844.8,1077 890.8,1077" fill="none" stroke="#1F2A37" stroke-width="2.5" stroke-linejoin="round" marker-end="url(#arrow)"/>
-<text x="900.8" y="1082" font-size="14.5" font-weight="400" fill="#1F2A37" text-anchor="start" font-style="normal">fluxo de dados</text>
-<polyline points="1045.6,1077 1091.6,1077" fill="none" stroke="#5B6775" stroke-width="2" stroke-dasharray="7 6" stroke-linejoin="round" marker-end="url(#arrowDash)"/>
-<text x="1101.6" y="1082" font-size="14.5" font-weight="400" fill="#1F2A37" text-anchor="start" font-style="normal">leitura ou consulta</text>
-<text x="40" y="1112" font-size="14" font-weight="400" fill="#5B6775" text-anchor="start" font-style="normal">Números nas caixas: 1 entrada dos dados · 2 processamento · 3 transformação · 4 consumo · 5 governança com IA</text>
-<text x="40" y="1134" font-size="14" font-weight="400" fill="#5B6775" text-anchor="start" font-style="normal">Texto em fonte monoespaçada: nome da pasta do projeto no repositório</text>
+<rect x="40" y="1075" width="1720" height="140" rx="14" fill="#EEF6F0" stroke="#5F9A6E" stroke-width="2"/>
+<text x="60" y="1101" font-size="14" font-weight="700" fill="#3F7450" text-anchor="start" font-style="normal">PLATAFORMA DE TEMPLATES: BASE REUTILIZÁVEL PARA NOVOS PIPELINES</text>
+<text x="1740" y="1101" font-size="13.5" font-weight="400" fill="#3F7450" text-anchor="end" font-style="italic">o template gera o repositório; a biblioteca valida, planeja e roda; a DAG vem do mesmo pipeline.yaml</text>
+<rect x="60" y="1113" width="420" height="64" rx="12" fill="#FFF1D6" stroke="#D98200" stroke-width="2"/>
+<text x="270.0" y="1139.5" font-size="15" font-weight="700" fill="#1F2A37" text-anchor="middle" font-style="normal">Template de pipeline (Cookiecutter)</text>
+<text x="270.0" y="1166.5" font-size="11.5" font-weight="600" fill="#8A5200" text-anchor="middle" font-style="normal" font-family="'Cascadia Mono', Consolas, 'Courier New', monospace">template-pipeline</text>
+<rect x="690" y="1113" width="420" height="64" rx="12" fill="#FFF1D6" stroke="#D98200" stroke-width="2"/>
+<text x="900.0" y="1139.5" font-size="15" font-weight="700" fill="#1F2A37" text-anchor="middle" font-style="normal">Projeto gerado (tipo híbrido)</text>
+<text x="900.0" y="1166.5" font-size="11.5" font-weight="600" fill="#8A5200" text-anchor="middle" font-style="normal" font-family="'Cascadia Mono', Consolas, 'Courier New', monospace">combustiveis-pipeline-gcp</text>
+<rect x="1320" y="1113" width="420" height="64" rx="12" fill="#FFF1D6" stroke="#D98200" stroke-width="2"/>
+<text x="1530.0" y="1139.5" font-size="15" font-weight="700" fill="#1F2A37" text-anchor="middle" font-style="normal">Biblioteca dataeng-core</text>
+<text x="1530.0" y="1166.5" font-size="11.5" font-weight="600" fill="#8A5200" text-anchor="middle" font-style="normal" font-family="'Cascadia Mono', Consolas, 'Courier New', monospace">lib-dataeng-core</text>
+<polyline points="480,1145 690,1145" fill="none" stroke="#1F2A37" stroke-width="2.5" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<text x="585" y="1137" font-size="13" font-weight="400" fill="#5B6775" text-anchor="middle" font-style="italic">gera</text>
+<polyline points="1320,1145 1110,1145" fill="none" stroke="#1F2A37" stroke-width="2.5" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<text x="1215" y="1137" font-size="13" font-weight="400" fill="#5B6775" text-anchor="middle" font-style="italic">usa</text>
+<polyline points="270,1177 270,1201 1530,1201 1530,1177" fill="none" stroke="#5B6775" stroke-width="2" stroke-dasharray="7 6" stroke-linejoin="round" marker-end="url(#arrowDash)"/>
+<text x="900" y="1195" font-size="13" font-weight="400" fill="#5B6775" text-anchor="middle" font-style="italic">o template depende da biblioteca (referência por versão)</text>
+<rect x="40" y="1251" width="26" height="18" rx="4" fill="#E3F4E7" stroke="#0A5C20" stroke-width="2"/>
+<text x="76" y="1265" font-size="14.5" font-weight="400" fill="#1F2A37" text-anchor="start" font-style="normal">Pronto</text>
+<rect x="159.2" y="1251" width="26" height="18" rx="4" fill="#FFF1D6" stroke="#D98200" stroke-width="2"/>
+<text x="195.2" y="1265" font-size="14.5" font-weight="400" fill="#1F2A37" text-anchor="start" font-style="normal">Em andamento ou protótipo</text>
+<rect x="434.2" y="1251" width="26" height="18" rx="4" fill="#F1F2F4" stroke="#7A828C" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="470.2" y="1265" font-size="14.5" font-weight="400" fill="#1F2A37" text-anchor="start" font-style="normal">Planejado</text>
+<rect x="578.0" y="1251" width="26" height="18" rx="4" fill="#FFFFFF" stroke="#9AA3AE" stroke-width="2"/>
+<text x="614.0" y="1265" font-size="14.5" font-weight="400" fill="#1F2A37" text-anchor="start" font-style="normal">Fonte ou serviço externo</text>
+<polyline points="844.8,1260 890.8,1260" fill="none" stroke="#1F2A37" stroke-width="2.5" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<text x="900.8" y="1265" font-size="14.5" font-weight="400" fill="#1F2A37" text-anchor="start" font-style="normal">fluxo de dados</text>
+<polyline points="1045.6,1260 1091.6,1260" fill="none" stroke="#5B6775" stroke-width="2" stroke-dasharray="7 6" stroke-linejoin="round" marker-end="url(#arrowDash)"/>
+<text x="1101.6" y="1265" font-size="14.5" font-weight="400" fill="#1F2A37" text-anchor="start" font-style="normal">leitura ou consulta</text>
+<text x="40" y="1295" font-size="14" font-weight="400" fill="#5B6775" text-anchor="start" font-style="normal">Números nas caixas: 1 entrada dos dados · 2 processamento · 3 transformação · 4 consumo · 5 governança com IA</text>
+<text x="40" y="1317" font-size="14" font-weight="400" fill="#5B6775" text-anchor="start" font-style="normal">Texto em fonte monoespaçada: nome da pasta do projeto no repositório</text>
 </svg>

@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "{{ cookiecutter.nome_projeto }}"
+version = "0.1.0"
+description = "Pipeline ({{ cookiecutter.tipo_projeto }}) gerado a partir do template-pipeline."
+requires-python = ">=3.11"
+dependencies = [
+{%- if cookiecutter.origem_da_biblioteca == "git" %}
+    "dataeng-core[local] @ git+{{ cookiecutter.repositorio_biblioteca }}@dataeng-core-v{{ cookiecutter.versao_biblioteca }}#subdirectory=plataforma-engenharia/lib-dataeng-core",
+{%- else %}
+    "dataeng-core[local]=={{ cookiecutter.versao_biblioteca.rsplit(".", 1)[0] }}.*",
+{%- endif %}
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+# Projeto de configuração, não um pacote: nada para empacotar.
+[tool.setuptools]
+py-modules = []
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

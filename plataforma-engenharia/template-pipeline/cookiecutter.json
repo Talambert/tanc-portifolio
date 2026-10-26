@@ -1,0 +1,20 @@
+{
+  "nome_projeto": "meu-pipeline",
+  "tipo_projeto": ["ingestao", "relatorio", "hibrido"],
+  "origens": "arquivo",
+  "motor_ingestao": ["cloud_run", "dataproc", "ambos"],
+  "usa_python": ["nao", "sim"],
+  "usa_spark": ["nao", "sim"],
+  "modo_carga": ["append", "overwrite_particao", "merge"],
+  "projeto_gcp": "meu-projeto-dev",
+  "regiao": "southamerica-east1",
+  "bucket_bronze": "meu-projeto-dev-bronze",
+  "dataset_silver": "silver",
+  "dataset_gold": "gold",
+  "agenda_cron": "0 6 * * 1",
+  "origem_da_biblioteca": ["git", "artifact_registry"],
+  "versao_biblioteca": "0.1.0",
+  "repositorio_biblioteca": "https://github.com/Talambert/tanc-portifolio.git",
+  "indice_artifact_registry": "https://REGIAO-python.pkg.dev/meu-projeto-dev/meu-repositorio/simple/",
+  "__tabela_base": "{% if cookiecutter.tipo_projeto == 'relatorio' %}vendas_exemplo{% elif 'arquivo' in cookiecutter.origens %}registros_arquivo{% elif 'api' in cookiecutter.origens %}registros_api{% else %}eventos{% endif %}"
+}

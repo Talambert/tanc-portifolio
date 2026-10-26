@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Portal de Governança de Dados">
+  <rect width="64" height="64" rx="14" fill="#0A5C20"/>
+  <path d="M32 11 L50 18 V32 C50 43 42.5 51 32 54 C21.5 51 14 43 14 32 V18 Z" fill="none" stroke="#FFFFFF" stroke-width="3.2" stroke-linejoin="round"/>
+  <path d="M23.5 32.5 L29.5 38.5 L41 26" fill="none" stroke="#FFFFFF" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

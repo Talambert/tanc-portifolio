@@ -1,0 +1,5 @@
+# Colunas da tabela silver (as colunas de controle `_run_id`, `_source_file`, ... são acrescentadas pela biblioteca).
+colunas:
+  - {nome: id, tipo: inteiro, obrigatoria: true}
+  - {nome: nome, tipo: texto}
+  - {nome: valor, tipo: decimal}
